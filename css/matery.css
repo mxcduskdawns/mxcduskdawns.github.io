@@ -39,7 +39,7 @@ body {
     color: #34495e;
     overflow-x: hidden;
     overflow-y: auto;
-    background-image: url('https://github.com/mxcduskdawns/mxcduskdawns.github.io/blob/main/images/miku.jpg');
+    background-image: url('https://github.com/mxcduskdawns/mucenxue.github.io/blob/main/miku.jpg');
 }
 
 h1 {
@@ -551,10 +551,10 @@ header .go-back i {
     height: 40vh !important;
 }
 
-.bg-cover:after {
+/* .bg-cover:after {
     -webkit-animation: rainbow 60s infinite;
     animation: rainbow 60s infinite;
-}
+} */
 
 .bg-cover:before,
 .bg-cover:after {
