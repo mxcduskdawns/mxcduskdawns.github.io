@@ -19,14 +19,10 @@
 ]]></content>
   </entry>
   <entry>
-    <title>house-of-pig</title>
-    <url>/2024/07/11/house-of-pig-1/</url>
-    <content><![CDATA[]]></content>
-  </entry>
-  <entry>
     <title></title>
     <url>/2024/08/14/house%20of%20cat/</url>
-    <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
+    <content><![CDATA[<p>title: house of cat</p>
+<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
 <p>–能泄露 libc 地址和 heap 地址</p>
 <p>–能触发 <strong>IO 流</strong>（三种方式）</p>
 <p>​		1.调用exit或从main退出</p>
@@ -108,6 +104,11 @@
   <entry>
     <title>house-of-pig</title>
     <url>/2024/07/11/house-of-pig-2/</url>
+    <content><![CDATA[]]></content>
+  </entry>
+  <entry>
+    <title>house-of-pig</title>
+    <url>/2024/07/11/house-of-pig-1/</url>
     <content><![CDATA[]]></content>
   </entry>
   <entry>
