@@ -481,16 +481,16 @@ malloc(0x10);
 free(victim);
 malloc(0x400);
 </code></pre>
-<p><img src="/pic/house_of_lore_0.png" alt="img"></p>
+<p><img src="/pic/house_of_lore/0.png" alt="img"></p>
 <p>此时的malloc(0x400)是为了将unsorted bin 变为small bin</p>
 <p><strong>布置攻击条件</strong></p>
 <pre><code>victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr
 stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
 </code></pre>
-<p><img src="/pic/house_of_lore_1.png" alt="img"></p>
-<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore_2.png" alt="img"></p>
+<p><img src="/pic/house_of_lore/1.png" alt="img"></p>
+<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore/2.png" alt="img"></p>
 <p>接下来在申请一次就可以再目标地址布置堆</p>
-<p><img src="/pic/house_of_lore_3.png" alt="img"></p>
+<p><img src="/pic/house_of_lore/3.png" alt="img"></p>
 <h2 id="2-27源码更改"><a href="#2-27源码更改" class="headerlink" title="2.27源码更改"></a>2.27源码更改</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">  if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">	  if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">	    malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">          bin-&gt;bk = bck;</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">	    set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">	  /* While we're here, if we see other chunks of the same size,</span><br><span class="line">	     stash them in the tcache.  */</span><br><span class="line">	  size_t tc_idx = csize2tidx (nb);</span><br><span class="line">	  if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)</span><br><span class="line">	    {</span><br><span class="line">	      mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">	      /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">	      while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count</span><br><span class="line">		     &amp;&amp; (tc_victim = last (bin)) != bin)</span><br><span class="line">		{</span><br><span class="line">		  if (tc_victim != 0)</span><br><span class="line">		    {</span><br><span class="line">		      bck = tc_victim-&gt;bk;</span><br><span class="line">		      set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">		      if (av != &amp;main_arena)</span><br><span class="line">			set_non_main_arena (tc_victim);</span><br><span class="line">		      bin-&gt;bk = bck;</span><br><span class="line">		      bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">		      tcache_put (tc_victim, tc_idx);</span><br><span class="line">	            }</span><br><span class="line">		}</span><br><span class="line">	    }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
 
 <p>要么使其满足 <code>tc_victim = last (bin)) == bin</code>、要么使其满足：<code>tcache-&gt;counts[tc_idx] ≥ mp_.tcache_count</code>。否则可能会因为非法内存访问使得程序 <code>down</code> 掉。</p>
@@ -643,18 +643,17 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="far fa-dot-circle"></i>&nbsp;本篇
-            </div>
+                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
             <div class="card">
-                <a href="/2024/08/15/house%20of%20lore/">
+                <a href="/2024/08/15/house%20of%20storm/">
                     <div class="card-image">
                         
                         
-                        <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="house-of-lore">
+                        <img src="/medias/featureimages/8.jpg" class="responsive-img" alt="house-of-storm">
                         
-                        <span class="card-title">house-of-lore</span>
+                        <span class="card-title">house-of-storm</span>
                     </div>
                 </a>
                 <div class="card-content article-content">
@@ -664,9 +663,9 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
                         
                     </div>
                     <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
-                            </span>
+                        <span class="publish-date">
+                            <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
+                        </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
@@ -683,7 +682,6 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
                         </span>
                     </div>
                 </div>
-
                 
                 <div class="card-action article-tags">
                     
