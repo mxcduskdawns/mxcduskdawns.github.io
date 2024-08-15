@@ -4,12 +4,12 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="Hexo">
-    <meta name="description" content="title: house of cat
-适用版本:2.23-2.25使用条件–能任意写一个可控地址（如largebin attack）
+    <meta name="keywords" content="house-of-cat, Hexo">
+    <meta name="description" content="适用版本:2.23-2.25使用条件–能任意写一个可控地址（如largebin attack）
 –能泄露 libc 地址和 heap 地址
 –能触发 IO 流（三种方式）
-​		1.调用exit或从m">
+​		1.调用exit或从main退出
+​		2. puts、pri">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="renderer" content="webkit|ie-stand|ie-comp">
@@ -21,7 +21,7 @@
     <!-- Global site tag (gtag.js) - Google Analytics -->
 
 
-    <title>Hexo</title>
+    <title>house-of-cat | Hexo</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     
     <style>
@@ -349,12 +349,12 @@
 
 
 
-<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/0.jpg')">
+<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/3.jpg')">
     <div class="container" style="right: 0px;left: 0px;">
         <div class="row">
             <div class="col s12 m12 l12">
                 <div class="brand">
-                    <h1 class="description center-align post-title"></h1>
+                    <h1 class="description center-align post-title">house-of-cat</h1>
                 </div>
             </div>
         </div>
@@ -376,12 +376,29 @@
             <div class="row tag-cate">
                 <div class="col s7">
                     
-                          <div class="article-tag">
-                            <span class="chip bg-color">无标签</span>
-                          </div>
+                    <div class="article-tag">
+                        
+                            <a href="/tags/house-of/">
+                                <span class="chip bg-color">house_of</span>
+                            </a>
+                        
+                    </div>
                     
                 </div>
                 <div class="col s5 right-align">
+                    
+                    <div class="post-cate">
+                        <i class="fas fa-bookmark fa-fw icon-category"></i>
+                        
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
+                                pwn学习
+                            </a>
+                        
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
+                                堆利用
+                            </a>
+                        
+                    </div>
                     
                 </div>
             </div>
@@ -413,16 +430,10 @@
         
 
         
-        <!-- 代码块折行 -->
-        <style type="text/css">
-            code[class*="language-"], pre[class*="language-"] { white-space: pre-wrap !important; }
-        </style>
-        
 
         <div class="card-content article-card-content">
             <div id="articleContent">
-                <p>title: house of cat</p>
-<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
+                <h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
 <p>–能泄露 libc 地址和 heap 地址</p>
 <p>–能触发 <strong>IO 流</strong>（三种方式）</p>
 <p>​		1.调用exit或从main退出</p>
@@ -459,14 +470,14 @@
 <li>old_top.prev_inuse = 0;</li>
 <li>old_top页对齐</li>
 </ol>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602214501966.png" alt="image-20240602214501966"></p>
+<p><img src="/pic/house_of_cat/1.png" alt="img"></p>
 <h2 id="fxprintf-vfxprintf"><a href="#fxprintf-vfxprintf" class="headerlink" title="fxprintf -> vfxprintf"></a>fxprintf -&gt; vfxprintf</h2><p>这里可以没有遇到困难可以直接到</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">int __vfxprintf (FILE *fp, const char *fmt, va_list ap,</span><br><span class="line">         unsigned int mode_flags)</span><br><span class="line">{</span><br><span class="line">  if (fp == NULL)</span><br><span class="line">    fp = stderr;</span><br><span class="line">  _IO_flockfile (fp);</span><br><span class="line">  int res = locked_vfxprintf (fp, fmt, ap, mode_flags);</span><br><span class="line">  _IO_funlockfile (fp);</span><br><span class="line">  return res;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
 <h3 id="第一个阻碍点"><a href="#第一个阻碍点" class="headerlink" title="第一个阻碍点"></a>第一个阻碍点</h3><p>接着往下面走</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602234004388.png" alt="image-20240602234004388"></p>
+<p><img src="/pic/house_of_cat/2.png" alt="img"></p>
 <p>在这里卡住了我们看一下源码</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602234034295.png" alt="image-20240602234034295"></p>
+<p><img src="/pic/house_of_cat/3.png" alt="img"></p>
 <p>_IO_flockfile的源码</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line"># define _IO_flockfile(_fp) \</span><br><span class="line">  if (((_fp)-&gt;_flags &amp; _IO_USER_LOCK) == 0) _IO_lock_lock (*(_fp)-&gt;_lock)</span><br></pre></td></tr></tbody></table></figure>
 
@@ -475,29 +486,29 @@
 
 <p> 可以看到进了之后就是一个无限循环，死锁。所以我们要绕过这个，通过上面的代码可以得到条件</p>
 <p>1.fp–&gt;flag要是一个可读取的地址</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240602235212324.png" alt="image-20240602235212324"></p>
+<p><img src="/pic/house_of_cat/4.png" alt="img"></p>
 <p>然后就可以绕过这个检测</p>
 <h2 id="locked-vfxprintf-vfprintf-internal直接可以进"><a href="#locked-vfxprintf-vfprintf-internal直接可以进" class="headerlink" title="locked_vfxprintf -> vfprintf_internal直接可以进"></a>locked_vfxprintf -&gt; vfprintf_internal直接可以进</h2><h3 id="第二个障碍点"><a href="#第二个障碍点" class="headerlink" title="第二个障碍点"></a>第二个障碍点</h3><p>然后接着往下面走发现进不了vtable，通过源码调试发现</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603003642792.png" alt="image-20240603003642792"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603003726012.png" alt="image-20240603003726012"></p>
+<p><img src="/pic/house_of_cat/5.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/6.png" alt="img"></p>
 <p>不能进入_IO_vtable_check 进入就代表没过检测，这里检测vtable的位置于是出现了第二个障碍点</p>
 <p>1.通过修改fake_io的结构来给虚表的位置赋值为_IO_file_xsputn+0x10</p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603004505289.png" alt="image-20240603004505289"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603005957946.png" alt="image-20240603005957946"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603005926685.png" alt="image-20240603005926685"></p>
-<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603011158903.png" alt="image-20240603011158903"></p>
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603102508163.png" alt="image-20240603102508163"></p>
+<p><img src="/pic/house_of_cat/7.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/8.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/9.png" alt="img"></p>
+<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="/pic/house_of_cat/10.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/11.png" alt="img"></p>
 <p>1.这个地方需要fp–&gt;wide_data要有值</p>
 <p>2.这个值指向的两个位置一个是IO_write_ptr一个是IO_write_base,前者要比后者小才对**，不然就无法使was_writting为true</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">bool was_writing = ((fp-&gt;_wide_data-&gt;_IO_write_ptr</span><br><span class="line">              &gt; fp-&gt;_wide_data-&gt;_IO_write_base)</span><br><span class="line">             || _IO_in_put_mode (fp));</span><br></pre></td></tr></tbody></table></figure>
 
 <p>然后就进入_IO_switch_to_wget_mode</p>
-<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603110504949.png" alt="image-20240603110504949"></p>
+<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="/pic/house_of_cat/12.png" alt="img"></p>
 <p>通过rax–&gt;[rax+0xe0]–&gt; 到call  [rax+0xe0]+0x18 来劫持rip</p>
 <p>还可以劫持rdx</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">0x7ffff7e07cbf &lt;_IO_switch_to_wget_mode+15&gt;    mov    rdx, qword ptr [rax + 0x20]     RDX, [0x5555555592b0] =&gt; 2</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="C:\Users\muxuecen\AppData\Roaming\Typora\typora-user-images\image-20240603110835858.png" alt="image-20240603110835858"></p>
+<p><img src="/pic/house_of_cat/13.png" alt="img"></p>
 <p>成功劫持，至此house of cat的过程结束</p>
 
                 
@@ -562,7 +573,11 @@
                 <div class="post-meta__tag-list" style="display: inline-block;">
                     
                         <div class="article-tag">
-                            <span class="chip bg-color">无标签</span>
+                            
+                                <a href="/tags/house-of/">
+                                    <span class="chip bg-color">house_of</span>
+                                </a>
+                            
                         </div>
                     
                 </div>
@@ -639,50 +654,11 @@
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
-            <div class="article-badge left-badge text-color">
-                <i class="far fa-dot-circle"></i>&nbsp;本篇
-            </div>
-            <div class="card">
-                <a href="/2024/08/14/house%20of%20cat/">
-                    <div class="card-image">
-                        
-                        
-                        <img src="/medias/featureimages/0.jpg" class="responsive-img" alt="">
-                        
-                        <span class="card-title"></span>
-                    </div>
-                </a>
-                <div class="card-content article-content">
-                    <div class="summary block-with-text">
-                        
-                            
-                        
-                    </div>
-                    <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-14
-                            </span>
-                        <span class="publish-author">
-                            
-                            <i class="fas fa-user fa-fw"></i>
-                            John Doe
-                            
-                        </span>
-                    </div>
-                </div>
-
-                
-            </div>
-        </div>
-        
-        
         <div class="article col s12 m6" data-aos="fade-up">
-            <div class="article-badge right-badge text-color">
-                下一篇&nbsp;<i class="fas fa-chevron-right"></i>
-            </div>
+            <div class="article-badge left-badge text-color">
+                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
             <div class="card">
-                <a href="/2024/07/11/house-of-pig-2/">
+                <a href="/2024/08/15/house-of-pig/">
                     <div class="card-image">
                         
                         
@@ -698,16 +674,86 @@
                         
                     </div>
                     <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-07-11
-                            </span>
+                        <span class="publish-date">
+                            <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
+                        </span>
                         <span class="publish-author">
                             
-                            <i class="fas fa-user fa-fw"></i>
-                            John Doe
+                            <i class="fas fa-bookmark fa-fw icon-category"></i>
+                            
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
+                                    pwn学习
+                                </a>
+                            
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
+                                    堆利用
+                                </a>
+                            
                             
                         </span>
                     </div>
+                </div>
+                
+                <div class="card-action article-tags">
+                    
+                    <a href="/tags/house-of/">
+                        <span class="chip bg-color">house_of</span>
+                    </a>
+                    
+                </div>
+                
+            </div>
+        </div>
+        
+        
+        <div class="article col s12 m6" data-aos="fade-up">
+            <div class="article-badge right-badge text-color">
+                本篇&nbsp;<i class="far fa-dot-circle"></i>
+            </div>
+            <div class="card">
+                <a href="/2024/08/14/house%20of%20cat/">
+                    <div class="card-image">
+                        
+                        
+                        <img src="/medias/featureimages/3.jpg" class="responsive-img" alt="house-of-cat">
+                        
+                        <span class="card-title">house-of-cat</span>
+                    </div>
+                </a>
+                <div class="card-content article-content">
+                    <div class="summary block-with-text">
+                        
+                            
+                        
+                    </div>
+                    <div class="publish-info">
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-14
+                            </span>
+                        <span class="publish-author">
+                            
+                            <i class="fas fa-bookmark fa-fw icon-category"></i>
+                            
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
+                                    pwn学习
+                                </a>
+                            
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
+                                    堆利用
+                                </a>
+                            
+                            
+                        </span>
+                    </div>
+                </div>
+
+                
+                <div class="card-action article-tags">
+                    
+                    <a href="/tags/house-of/">
+                        <span class="chip bg-color">house_of</span>
+                    </a>
+                    
                 </div>
                 
             </div>
@@ -727,8 +773,6 @@
 
 <!-- 代码语言 -->
 
-<script type="text/javascript" src="/libs/codeBlock/codeLang.js"></script>
-
 
 <!-- 代码块复制 -->
 
@@ -736,8 +780,6 @@
 
 
 <!-- 代码块收缩 -->
-
-<script type="text/javascript" src="/libs/codeBlock/codeShrink.js"></script>
 
 
 
