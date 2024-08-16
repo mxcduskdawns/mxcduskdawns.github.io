@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="分类: pwn学习, 小慕二进制的世界">
+    <meta name="keywords" content="分类: dir, 小慕二进制的世界">
     <meta name="description" content="小慕二进制的世界">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -17,7 +17,7 @@
     <!-- Global site tag (gtag.js) - Google Analytics -->
 
 
-    <title>分类: pwn学习 | 小慕二进制的世界</title>
+    <title>分类: dir | 小慕二进制的世界</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     
     <style>
@@ -412,7 +412,7 @@
                 
                 <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" title="pwn学习: 6">
                     <span class="chip center-align waves-effect waves-light
-                             chip-active "
+                             chip-default "
                             style="background-color: #F9EBEA;">pwn学习
                         <span class="tag-length">6</span>
                     </span>
@@ -448,7 +448,7 @@
                 
                 <a href="/categories/iot/%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/dir/" title="dir: 1">
                     <span class="chip center-align waves-effect waves-light
-                             chip-default "
+                             chip-active "
                             style="background-color: #FEF9E7;">dir
                         <span class="tag-length">1</span>
                     </span>
@@ -468,35 +468,44 @@
             
             <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
                 <div class="card">
-                    <a href="/2024/08/15/house%20of%20storm/">
+                    <a href="/2024/08/16/DIR-820%20CVE-2022-26258/">
                         <div class="card-image tag-image">
                             
                             
-                            <img src="/medias/featureimages/8.jpg" class="responsive-img" alt="house-of-storm">
+                            <img src="/medias/featureimages/9.jpg" class="responsive-img" alt="DIR-820 CVE-2022-26258">
                             
-                            <span class="card-title">house-of-storm</span>
+                            <span class="card-title">DIR-820 CVE-2022-26258</span>
                         </div>
                     </a>
                     <div class="card-content article-content">
                         <div class="summary block-with-text">
                             
-                                原理介绍House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorte
+                                官方漏洞描述
+根据漏洞描述我们可以发现漏洞是在/lan.asp中存在一个Device Name导致的一个命令执行
+漏洞分析：
+
+通过搜索发现 是把lan_device_name的值传入拼接paramStr
+进一步审计发现 copyDataT
                             
                         </div>
                         <div class="publish-info">
                             <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
+                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-16
                             </span>
                             <span class="publish-author">
                                 
                                 <i class="fas fa-bookmark fa-fw icon-category"></i>
                                 
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
+                                <a href="/categories/iot/" class="post-category">
+                                    iot
                                 </a>
                                 
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
+                                <a href="/categories/iot/%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/" class="post-category">
+                                    漏洞复现
+                                </a>
+                                
+                                <a href="/categories/iot/%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/dir/" class="post-category">
+                                    dir
                                 </a>
                                 
                                 
@@ -507,272 +516,8 @@
                     
                     <div class="card-action article-tags">
                         
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
-                        </a>
-                        
-                    </div>
-                    
-                </div>
-            </div>
-            
-            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
-                <div class="card">
-                    <a href="/2024/08/15/house%20of%20spirit/">
-                        <div class="card-image tag-image">
-                            
-                            
-                            <img src="/medias/featureimages/10.jpg" class="responsive-img" alt="house-of-Spirit">
-                            
-                            <span class="card-title">house-of-Spirit</span>
-                        </div>
-                    </a>
-                    <div class="card-content article-content">
-                        <div class="summary block-with-text">
-                            
-                                House of Spirit 是 the Malloc Maleficarum 中的一种技术。该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配指定地址的 chunk 的目的。
-要想构造 fastbin
-                            
-                        </div>
-                        <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
-                            </span>
-                            <span class="publish-author">
-                                
-                                <i class="fas fa-bookmark fa-fw icon-category"></i>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
-                                </a>
-                                
-                                
-                            </span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="card-action article-tags">
-                        
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
-                        </a>
-                        
-                    </div>
-                    
-                </div>
-            </div>
-            
-            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
-                <div class="card">
-                    <a href="/2024/08/15/House%20Of%20Einherja/">
-                        <div class="card-image tag-image">
-                            
-                            
-                            <img src="/medias/featureimages/13.jpg" class="responsive-img" alt="house-of-Einherja">
-                            
-                            <span class="card-title">house-of-Einherja</span>
-                        </div>
-                    </a>
-                    <div class="card-content article-content">
-                        <div class="summary block-with-text">
-                            
-                                后向合并free 函数中的后向合并核心代码：
-/ *consolidatebackward * /if (!prev_inuse(p)) {prevsize = prev_size(p);size += prevsize;p = chunk
-                            
-                        </div>
-                        <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
-                            </span>
-                            <span class="publish-author">
-                                
-                                <i class="fas fa-bookmark fa-fw icon-category"></i>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
-                                </a>
-                                
-                                
-                            </span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="card-action article-tags">
-                        
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
-                        </a>
-                        
-                    </div>
-                    
-                </div>
-            </div>
-            
-            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
-                <div class="card">
-                    <a href="/2024/08/15/house%20of%20lore/">
-                        <div class="card-image tag-image">
-                            
-                            
-                            <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="house-of-lore">
-                            
-                            <span class="card-title">house-of-lore</span>
-                        </div>
-                    </a>
-                    <div class="card-content article-content">
-                        <div class="summary block-with-text">
-                            
-                                使用版本以及影响2.23-2.31(不包含2.31)
-libc-2.23
-libc-2.27
-if (__glibc_unlikely (bck-&gt;fd != victim))
-
-检查 fakechunk-&gt;FD 是不是 vic
-                            
-                        </div>
-                        <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
-                            </span>
-                            <span class="publish-author">
-                                
-                                <i class="fas fa-bookmark fa-fw icon-category"></i>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
-                                </a>
-                                
-                                
-                            </span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="card-action article-tags">
-                        
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
-                        </a>
-                        
-                    </div>
-                    
-                </div>
-            </div>
-            
-            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
-                <div class="card">
-                    <a href="/2024/08/15/house-of-pig/">
-                        <div class="card-image tag-image">
-                            
-                            
-                            <img src="/medias/featureimages/19.jpg" class="responsive-img" alt="house-of-pig">
-                            
-                            <span class="card-title">house-of-pig</span>
-                        </div>
-                    </a>
-                    <div class="card-content article-content">
-                        <div class="summary block-with-text">
-                            
-                                使用版本
-攻击原理
-前置知识学习：2.31版本后的large bin attack的利用，tcache_stashing unlink的原理，高版本下IO的攻击思路
-2.31下large bin attack利用利用条件:1.libc版本:
-                            
-                        </div>
-                        <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
-                            </span>
-                            <span class="publish-author">
-                                
-                                <i class="fas fa-bookmark fa-fw icon-category"></i>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
-                                </a>
-                                
-                                
-                            </span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="card-action article-tags">
-                        
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
-                        </a>
-                        
-                    </div>
-                    
-                </div>
-            </div>
-            
-            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
-                <div class="card">
-                    <a href="/2024/08/14/house%20of%20cat/">
-                        <div class="card-image tag-image">
-                            
-                            
-                            <img src="/medias/featureimages/3.jpg" class="responsive-img" alt="house-of-cat">
-                            
-                            <span class="card-title">house-of-cat</span>
-                        </div>
-                    </a>
-                    <div class="card-content article-content">
-                        <div class="summary block-with-text">
-                            
-                                适用版本:2.23-2.25使用条件–能任意写一个可控地址（如largebin attack）
-–能泄露 libc 地址和 heap 地址
-–能触发 IO 流（三种方式）
-​		1.调用exit或从main退出
-​		2. puts、pri
-                            
-                        </div>
-                        <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-14
-                            </span>
-                            <span class="publish-author">
-                                
-                                <i class="fas fa-bookmark fa-fw icon-category"></i>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                                
-                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
-                                </a>
-                                
-                                
-                            </span>
-                        </div>
-                    </div>
-
-                    
-                    <div class="card-action article-tags">
-                        
-                        <a href="/tags/house-of/">
-                            <span class="chip bg-color">house_of</span>
+                        <a href="/tags/%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8C/">
+                            <span class="chip bg-color">命令执行</span>
                         </a>
                         
                     </div>
