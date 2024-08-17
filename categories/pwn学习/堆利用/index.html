@@ -410,11 +410,11 @@
                 
                 
                 
-                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" title="pwn学习: 6">
+                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" title="pwn学习: 7">
                     <span class="chip center-align waves-effect waves-light
                              chip-default "
                             style="background-color: #F9EBEA;">pwn学习
-                        <span class="tag-length">6</span>
+                        <span class="tag-length">7</span>
                     </span>
                 </a>
                 
@@ -428,11 +428,11 @@
                 </a>
                 
                 
-                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" title="堆利用: 6">
+                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" title="堆利用: 7">
                     <span class="chip center-align waves-effect waves-light
                              chip-active "
                             style="background-color: #D5F5E3;">堆利用
-                        <span class="tag-length">6</span>
+                        <span class="tag-length">7</span>
                     </span>
                 </a>
                 
@@ -468,19 +468,71 @@
             
             <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
                 <div class="card">
-                    <a href="/2024/08/15/house%20of%20storm/">
+                    <a href="/2024/08/17/house%20of%20force%E8%BF%9B%E9%98%B6/">
                         <div class="card-image tag-image">
                             
                             
-                            <img src="/medias/featureimages/8.jpg" class="responsive-img" alt="house-of-storm">
+                            <img src="/medias/featureimages/21.jpg" class="responsive-img" alt="house_of_force进阶(和tcache污染结合)">
                             
-                            <span class="card-title">house-of-storm</span>
+                            <span class="card-title">house_of_force进阶(和tcache污染结合)</span>
                         </div>
                     </a>
                     <div class="card-content article-content">
                         <div class="summary block-with-text">
                             
-                                原理介绍House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorte
+                                前情提要常规使用的house of force 是通过泄露了堆和libc的地址来修改hook函数导致的shell
+而无法泄露堆地址的情况，按常规的思路就打不了了，这时候就出现了house of force 进阶搭配tcache 头污染，可以
+                            
+                        </div>
+                        <div class="publish-info">
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-17
+                            </span>
+                            <span class="publish-author">
+                                
+                                <i class="fas fa-bookmark fa-fw icon-category"></i>
+                                
+                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
+                                    pwn学习
+                                </a>
+                                
+                                <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
+                                    堆利用
+                                </a>
+                                
+                                
+                            </span>
+                        </div>
+                    </div>
+
+                    
+                    <div class="card-action article-tags">
+                        
+                        <a href="/tags/house-of/">
+                            <span class="chip bg-color">house of</span>
+                        </a>
+                        
+                    </div>
+                    
+                </div>
+            </div>
+            
+            <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
+                <div class="card">
+                    <a href="/2024/08/15/house%20of%20spirit/">
+                        <div class="card-image tag-image">
+                            
+                            
+                            <img src="/medias/featureimages/10.jpg" class="responsive-img" alt="house-of-Spirit">
+                            
+                            <span class="card-title">house-of-Spirit</span>
+                        </div>
+                    </a>
+                    <div class="card-content article-content">
+                        <div class="summary block-with-text">
+                            
+                                House of Spirit 是 the Malloc Maleficarum 中的一种技术。该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配指定地址的 chunk 的目的。
+要想构造 fastbin
                             
                         </div>
                         <div class="publish-info">
@@ -518,20 +570,19 @@
             
             <div class="article tag-post col s12 m6 l4" data-aos="zoom-in">
                 <div class="card">
-                    <a href="/2024/08/15/house%20of%20spirit/">
+                    <a href="/2024/08/15/house%20of%20storm/">
                         <div class="card-image tag-image">
                             
                             
-                            <img src="/medias/featureimages/10.jpg" class="responsive-img" alt="house-of-Spirit">
+                            <img src="/medias/featureimages/8.jpg" class="responsive-img" alt="house-of-storm">
                             
-                            <span class="card-title">house-of-Spirit</span>
+                            <span class="card-title">house-of-storm</span>
                         </div>
                     </a>
                     <div class="card-content article-content">
                         <div class="summary block-with-text">
                             
-                                House of Spirit 是 the Malloc Maleficarum 中的一种技术。该技术的核心在于在目标位置处伪造 fastbin chunk，并将其释放，从而达到分配指定地址的 chunk 的目的。
-要想构造 fastbin
+                                原理介绍House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorte
                             
                         </div>
                         <div class="publish-info">
