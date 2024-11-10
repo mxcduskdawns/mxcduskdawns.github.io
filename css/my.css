@@ -1,1 +1,18 @@
-/* Here is your custom css styles. */
+#subtitle {
+    color: #000000 !important; /* 使用重要性标记应用颜色 */
+    font-weight: bold;
+    padding: 10px;
+    border-radius: 5px;
+    text-shadow: 2px 2px 3px #ffffff, 2px 2px 4px #aaaaaa;
+    font-style: italic; /* 使字体呈现斜体 */
+    letter-spacing: 2px; /* 增加字母间距 */
+}
+div.title.center-align {
+    color: #FFFFFF    !important; /* 使用重要性标记应用颜色 */
+    text-shadow: 1px 1px 2px #ffffff, 1px 1px 3px #aaaaaa; /* 减少阴影的偏移量和模糊半径 */
+}
+
+div.row{
+    color: #708090 !important; /* 使用 !important 强制应用颜色 */
+
+}
