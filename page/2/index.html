@@ -408,23 +408,25 @@
              <!-- 隐藏某个文章 -->
             <div class="article col s12 m6 l4" data-aos="zoom-in">
                 <div class="card">
-                    <a href="/2024/08/15/house-of-pig/">
+                    <a href="/2024/08/15/house%20of%20lore/">
                         <div class="card-image">
                             
                             
-                            <img src="/medias/featureimages/13.jpg" class="responsive-img" alt="house-of-pig">
+                            <img src="/medias/featureimages/9.jpg" class="responsive-img" alt="house-of-lore">
                             
-                            <span class="card-title">house-of-pig</span>
+                            <span class="card-title">house-of-lore</span>
                         </div>
                     </a>
 
                     <div class="card-content article-content">
                         <div class="summary block-with-text">
                             
-                                使用版本
-攻击原理
-前置知识学习：2.31版本后的large bin attack的利用，tcache_stashing unlink的原理，高版本下IO的攻击思路
-2.31下large bin attack利用利用条件:1.libc版本:
+                                使用版本以及影响2.23-2.31(不包含2.31)
+libc-2.23
+libc-2.27
+if (__glibc_unlikely (bck-&gt;fd != victim))
+
+检查 fakechunk-&gt;FD 是不是 vic
                             
                         </div>
                         <div class="publish-info">
@@ -464,29 +466,28 @@
              <!-- 隐藏某个文章 -->
             <div class="article col s12 m6 l4" data-aos="zoom-in">
                 <div class="card">
-                    <a href="/2024/08/14/house%20of%20cat/">
+                    <a href="/2024/08/15/house-of-pig/">
                         <div class="card-image">
                             
                             
-                            <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="house-of-cat">
+                            <img src="/medias/featureimages/13.jpg" class="responsive-img" alt="house-of-pig">
                             
-                            <span class="card-title">house-of-cat</span>
+                            <span class="card-title">house-of-pig</span>
                         </div>
                     </a>
 
                     <div class="card-content article-content">
                         <div class="summary block-with-text">
                             
-                                适用版本:2.23-2.25使用条件–能任意写一个可控地址（如largebin attack）
-–能泄露 libc 地址和 heap 地址
-–能触发 IO 流（三种方式）
-​		1.调用exit或从main退出
-​		2. puts、pri
+                                使用版本
+攻击原理
+前置知识学习：2.31版本后的large bin attack的利用，tcache_stashing unlink的原理，高版本下IO的攻击思路
+2.31下large bin attack利用利用条件:1.libc版本:
                             
                         </div>
                         <div class="publish-info">
                             <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-14
+                                <i class="far fa-clock fa-fw icon-date"></i>2024-08-15
                             </span>
                             <span class="publish-author">
                                 
@@ -612,7 +613,7 @@
         <div class="col s12 m8 l8 copy-right">
             Copyright&nbsp;&copy;
             
-                <span id="year">2024</span>
+                <span id="year">2024-2025</span>
             
             <a href="/about" target="_blank">sn0w</a>
             |&nbsp;Powered by&nbsp;<a href="https://hexo.io/" target="_blank">Hexo</a>
